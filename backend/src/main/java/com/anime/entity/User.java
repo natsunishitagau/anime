@@ -23,6 +23,9 @@ public class User {
     @Column(unique = true, nullable = false)
     private String email;
 
+    @Column(length = 100)
+    private String signature;
+
     @Column(nullable = false)
     private String password;
 

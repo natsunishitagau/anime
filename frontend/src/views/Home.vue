@@ -23,44 +23,40 @@
     <section class="section">
       <div class="container">
         <div class="section-header">
-          <h2>🔥 热门番剧</h2>
-          <router-link to="/browse?sort=trending" class="see-more">查看更多 →</router-link>
+          <div class="anime-select">
+            <img src="../assets/anime-icon.svg" alt="番剧" class="section-icon" /> 
+            <h2>番剧推荐</h2>
+            <div class="main-tabs">
+              <button 
+                v-for="tab in mainTabs" 
+                :key="tab.value"
+                :class="['main-tab', { active: currentMainTab === tab.value }]"
+                @click="currentMainTab = tab.value"
+              >
+                {{ tab.icon }} {{ tab.label }}
+              </button>
+          </div>
+          </div>
+          <div class="text-center mt-4">
+            <router-link :to="currentTabLink" class="see-more inline-block">查看更多 →</router-link>
+          </div>
         </div>
+        
+        <div v-if="currentMainTab === 'seasonal'" class="season-tabs-wrapper">
+          <div class="season-tabs">
+            <button 
+              v-for="season in seasons" 
+              :key="season.value"
+              :class="['season-tab', { active: currentSeason === season.value }]"
+              @click="currentSeason = season.value; fetchSeasonalAnime()"
+            >
+              {{ season.label }}
+            </button>
+          </div>
+        </div>
+        
         <div class="grid grid-5">
-          <AnimeCard v-for="anime in trending" :key="anime.id" :anime="anime" />
-        </div>
-      </div>
-    </section>
-
-    <section class="section">
-      <div class="container">
-        <div class="section-header">
-          <h2>⭐ 评分最高</h2>
-          <router-link to="/browse?sort=top-rated" class="see-more">查看更多 →</router-link>
-        </div>
-        <div class="grid grid-5">
-          <AnimeCard v-for="anime in topRated" :key="anime.id" :anime="anime" />
-        </div>
-      </div>
-    </section>
-
-    <section class="section">
-      <div class="container">
-        <div class="section-header">
-          <h2>🎬 季度精选</h2>
-        </div>
-        <div class="season-tabs">
-          <button 
-            v-for="season in seasons" 
-            :key="season.value"
-            :class="['season-tab', { active: currentSeason === season.value }]"
-            @click="currentSeason = season.value; fetchSeasonalAnime()"
-          >
-            {{ season.label }}
-          </button>
-        </div>
-        <div class="grid grid-5">
-          <AnimeCard v-for="anime in seasonalAnime" :key="anime.id" :anime="anime" />
+          <AnimeCard v-for="anime in currentTabAnime" :key="anime.id" :anime="anime" />
         </div>
       </div>
     </section>
@@ -86,7 +82,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useAnimeStore } from '../stores/anime'
 import AnimeCard from '../components/AnimeCard.vue'
 
@@ -97,6 +93,13 @@ const trending = ref([])
 const topRated = ref([])
 const seasonalAnime = ref([])
 const currentSeason = ref('春季')
+const currentMainTab = ref('trending')
+
+const mainTabs = [
+  { label: '热门番剧', value: 'trending', icon: '🔥', link: '/browse?sort=trending' },
+  { label: '评分最高', value: 'top-rated', icon: '⭐', link: '/browse?sort=top-rated' },
+  { label: '季度精选', value: 'seasonal', icon: '🎬', link: '/browse' }
+]
 
 const seasons = [
   { label: '春季', value: '春季' },
@@ -106,6 +109,24 @@ const seasons = [
 ]
 
 const genres = ['动作', '冒险', '喜剧', '剧情', '奇幻', '恋爱', '科幻', '运动', '超自然', '悬疑']
+
+const currentTabAnime = computed(() => {
+  switch (currentMainTab.value) {
+    case 'trending':
+      return trending.value
+    case 'top-rated':
+      return topRated.value
+    case 'seasonal':
+      return seasonalAnime.value
+    default:
+      return trending.value
+  }
+})
+
+const currentTabLink = computed(() => {
+  const tab = mainTabs.find(t => t.value === currentMainTab.value)
+  return tab ? tab.link : '/browse'
+})
 
 const fetchSeasonalAnime = async () => {
   try {
@@ -178,9 +199,25 @@ onMounted(async () => {
   margin-bottom: 1.5rem;
 }
 
-.section-header h2 {
+.anime-select {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.anime-select h2 {
   font-size: 1.5rem;
   font-weight: 600;
+  display: flex;
+  align-items: center;
+  margin-right: 1rem;
+  gap: 1rem;
+}
+
+.section-icon {
+  margin-top: 0.38rem;
+  height: 1.5rem;
+  object-fit: cover;
 }
 
 .see-more {
@@ -195,10 +232,40 @@ onMounted(async () => {
   color: var(--secondary-color);
 }
 
+.main-tabs {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.main-tab {
+  padding: 0.5rem 1.5rem;
+  background: var(--background-light);
+  border: 1px solid var(--border-color);
+  border-radius: 9999px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 0.875rem;
+}
+
+.main-tab:hover {
+  border-color: var(--primary-color);
+  color: var(--primary-color);
+}
+
+.main-tab.active {
+  background: var(--primary-color);
+  border-color: var(--primary-color);
+  color: white;
+}
+
+.season-tabs-wrapper {
+  margin-bottom: 1.5rem;
+}
+
 .season-tabs {
   display: flex;
   gap: 0.5rem;
-  margin-bottom: 1.5rem;
 }
 
 .season-tab {

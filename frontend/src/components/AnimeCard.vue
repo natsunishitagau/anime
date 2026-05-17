@@ -1,6 +1,6 @@
 <template>
-  <router-link :to="`/anime/${anime.id}`" class="anime-card">
-    <div class="card-image">
+  <router-link :to="`/anime/${anime.id}`" class="anime-card" :class="{ 'card-fixed': cardWidth && cardHeight }" :style="cardStyle">
+    <div class="card-image" :class="{ 'image-fixed': cardWidth && cardHeight }" :style="imageStyle">
       <img :src="anime.imageUrl || 'https://via.placeholder.com/300x400/1e293b/475569?text=No+Image'" :alt="anime.title" />
       <div class="card-overlay">
         <span class="score" v-if="anime.score">⭐ {{ anime.score.toFixed(1) }}</span>
@@ -19,11 +19,35 @@
 </template>
 
 <script setup>
-defineProps({
+import { computed } from 'vue'
+
+const props = defineProps({
   anime: {
     type: Object,
     required: true
+  },
+  cardWidth: {
+    type: Number,
+    default: undefined
+  },
+  cardHeight: {
+    type: Number,
+    default: undefined
   }
+})
+
+const cardStyle = computed(() => {
+  if (props.cardWidth && props.cardHeight) {
+    return { width: `${props.cardWidth}px` }
+  }
+  return {}
+})
+
+const imageStyle = computed(() => {
+  if (props.cardWidth && props.cardHeight) {
+    return { width: `${props.cardWidth}px`, height: `${props.cardHeight}px` }
+  }
+  return {}
 })
 </script>
 
@@ -38,6 +62,10 @@ defineProps({
   transition: transform 0.3s ease, box-shadow 0.3s ease;
 }
 
+.card-fixed {
+  width: auto;
+}
+
 .anime-card:hover {
   transform: translateY(-4px);
   box-shadow: 0 12px 24px rgba(0, 0, 0, 0.3);
@@ -47,6 +75,10 @@ defineProps({
   position: relative;
   aspect-ratio: 3/4;
   overflow: hidden;
+}
+
+.image-fixed {
+  aspect-ratio: auto;
 }
 
 .card-image img {

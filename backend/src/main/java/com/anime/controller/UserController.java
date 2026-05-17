@@ -9,6 +9,7 @@ import com.anime.entity.Favorite;
 import com.anime.entity.WatchHistory;
 import com.anime.repository.AnimeRepository;
 import com.anime.repository.FavoriteRepository;
+import com.anime.repository.UserRepository;
 import com.anime.repository.WatchHistoryRepository;
 import com.anime.service.RecommendationService;
 import org.springframework.http.ResponseEntity;
@@ -23,12 +24,15 @@ import java.util.stream.Collectors;
 public class UserController {
 
     private final UserControllerHelper helper;
+    private final UserRepository userRepository;
 
     public UserController(FavoriteRepository favoriteRepository, 
                           WatchHistoryRepository watchHistoryRepository,
                           AnimeRepository animeRepository,
-                          RecommendationService recommendationService) {
+                          RecommendationService recommendationService,
+                          UserRepository userRepository) {
         this.helper = new UserControllerHelper(favoriteRepository, watchHistoryRepository, animeRepository, recommendationService);
+        this.userRepository = userRepository;
     }
 
     @GetMapping("/favorites")
@@ -88,6 +92,28 @@ public class UserController {
         
         UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
         return ResponseEntity.ok(ApiResponse.success(DtoMapper.toAnimeDtoList(helper.getRecommendations(userPrincipal.getId(), limit))));
+    }
+
+    @PutMapping("/signature")
+    public ResponseEntity<ApiResponse<Void>> updateSignature(
+            @RequestBody Map<String, String> body,
+            Authentication authentication) {
+        if (authentication == null) {
+            return ResponseEntity.status(401).body(ApiResponse.error("Authentication required"));
+        }
+
+        String signature = body.get("signature");
+        if (signature != null && signature.length() > 100) {
+            return ResponseEntity.badRequest().body(ApiResponse.error("Signature must be within 100 characters"));
+        }
+
+        UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
+        userRepository.findById(userPrincipal.getId()).ifPresent(user -> {
+            user.setSignature(signature);
+            userRepository.save(user);
+        });
+
+        return ResponseEntity.ok(ApiResponse.success("Signature updated", null));
     }
 
     static class UserControllerHelper {

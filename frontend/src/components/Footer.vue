@@ -9,7 +9,7 @@
         
         <div class="footer-section">
           <h3>快速链接</h3>
-          <ul>
+          <ul class="link-grid">
             <li><router-link to="/">首页</router-link></li>
             <li><router-link to="/browse">浏览番剧</router-link></li>
             <li><router-link to="/browse?type=TV">TV动画</router-link></li>
@@ -19,7 +19,7 @@
         
         <div class="footer-section">
           <h3>热门分类</h3>
-          <ul>
+          <ul class="link-grid">
             <li><router-link to="/browse?genre=动作">动作</router-link></li>
             <li><router-link to="/browse?genre=剧情">剧情</router-link></li>
             <li><router-link to="/browse?genre=喜剧">喜剧</router-link></li>
@@ -74,6 +74,16 @@
 
 .footer-section ul {
   list-style: none;
+}
+
+.link-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+.link-grid li {
+  margin-bottom: 0;
 }
 
 .footer-section li {

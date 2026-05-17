@@ -7,7 +7,22 @@
         </div>
         <div class="user-info">
           <h1>{{ user?.username }}</h1>
-          <p>{{ user?.email }}</p>
+          <div class="signature-wrapper">
+            <p v-if="!editingSignature" class="signature-text" @click="startEditSignature">
+              {{ userSignature || '点击添加个性签名...' }}
+            </p>
+            <input
+              v-else
+              ref="signatureInputRef"
+              v-model="userSignature"
+              type="text"
+              class="signature-input"
+              maxlength="100"
+              placeholder="写下你的个性签名..."
+              @blur="saveSignature"
+              @keyup.enter="saveSignature"
+            />
+          </div>
           <p class="member-since" v-if="user?.createdAt">
             加入于 {{ formatDate(user.createdAt) }}
           </p>
@@ -17,8 +32,8 @@
       <div class="profile-content">
         <section class="section">
           <h2>我的收藏</h2>
-          <div v-if="favorites.length > 0" class="grid grid-5">
-            <AnimeCard v-for="anime in favorites" :key="anime.id" :anime="anime" />
+          <div v-if="favorites.length > 0" class="favorites-grid">
+            <AnimeCard v-for="anime in favorites" :key="anime.id" :anime="anime" :card-width="160" :card-height="260" />
           </div>
           <div v-else class="empty-state">
             <p>还没有收藏任何番剧</p>
@@ -45,19 +60,13 @@
           </div>
         </section>
 
-        <section class="section">
-          <h2>账号设置</h2>
-          <div class="settings-card">
-            <button @click="handleLogout" class="btn btn-secondary">退出登录</button>
-          </div>
-        </section>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import AnimeCard from '../components/AnimeCard.vue'
@@ -68,11 +77,48 @@ const authStore = useAuthStore()
 const user = computed(() => authStore.user)
 const favorites = ref([])
 const watchHistory = ref([])
+const userSignature = ref('')
+const editingSignature = ref(false)
+const signatureInputRef = ref(null)
 
 const formatDate = (dateString) => {
   if (!dateString) return ''
   return new Date(dateString).toLocaleDateString('zh-CN')
 }
+
+const startEditSignature = async () => {
+  userSignature.value = user.value?.signature || ''
+  editingSignature.value = true
+  await nextTick()
+  signatureInputRef.value?.focus()
+}
+
+const saveSignature = async () => {
+  editingSignature.value = false
+  const newSig = userSignature.value?.trim() || ''
+  userSignature.value = newSig
+  try {
+    await fetch('/api/user/signature', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authStore.token}`
+      },
+      body: JSON.stringify({ signature: newSig })
+    })
+    if (authStore.user) {
+      authStore.user.signature = newSig
+    }
+  } catch (error) {
+    console.error('Failed to save signature:', error)
+  }
+}
+
+watch(() => user.value?.signature, (val) => {
+  if (!editingSignature.value) {
+    userSignature.value = val || ''
+  }
+}, { immediate: true })
 
 const fetchFavorites = async () => {
   try {
@@ -102,11 +148,6 @@ const fetchWatchHistory = async () => {
   }
 }
 
-const handleLogout = () => {
-  authStore.logout()
-  router.push('/')
-}
-
 onMounted(async () => {
   if (authStore.isAuthenticated && !authStore.user) {
     await authStore.verifyToken()
@@ -134,7 +175,7 @@ onMounted(async () => {
   align-items: center;
   gap: 2rem;
   padding: 2rem;
-  background: var(--background-light);
+  background: var(--background-median);
   border-radius: 1.5rem;
   margin-bottom: 2rem;
 }
@@ -162,6 +203,34 @@ onMounted(async () => {
   font-size: 0.875rem;
 }
 
+.signature-wrapper {
+  margin-top: 0.25rem;
+}
+
+.signature-text {
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+  cursor: pointer;
+  transition: color 0.2s;
+  padding: 0.25rem 0;
+}
+
+.signature-text:hover {
+  color: var(--primary-color);
+}
+
+.signature-input {
+  width: 200%;
+  max-width: 600px;
+  padding: 0.375rem 0.75rem;
+  background: var(--background-dark);
+  border: 1px solid var(--primary-color);
+  border-radius: 0.5rem;
+  color: var(--text-primary);
+  font-size: 0.8125rem;
+  outline: none;
+}
+
 .member-since {
   margin-top: 0.5rem;
   font-size: 0.75rem !important;
@@ -169,7 +238,7 @@ onMounted(async () => {
 }
 
 .profile-content .section {
-  background: var(--background-light);
+  background: var(--background-median);
   border-radius: 1.5rem;
   padding: 1.5rem;
   margin-bottom: 1.5rem;
@@ -191,6 +260,13 @@ onMounted(async () => {
 
 .empty-state p {
   margin-bottom: 1rem;
+}
+
+.favorites-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 160px);
+  gap: 1.5rem;
+  justify-content: left;
 }
 
 .watch-history-list {
@@ -229,11 +305,6 @@ onMounted(async () => {
 .history-info p {
   font-size: 0.75rem;
   color: var(--text-secondary);
-}
-
-.settings-card {
-  display: flex;
-  gap: 1rem;
 }
 
 @media (max-width: 768px) {

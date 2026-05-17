@@ -172,8 +172,9 @@ onMounted(() => {
 
 .anime-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fill, 160px);
   gap: 1.5rem;
+  justify-content: center;
 }
 
 .anime-card {

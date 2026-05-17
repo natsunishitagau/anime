@@ -20,9 +20,11 @@
       <div class="nav-links">
         <router-link to="/" class="nav-link">首页</router-link>
         <router-link to="/browse" class="nav-link">浏览</router-link>
-        
+        <router-link v-if="isAuthenticated" to="/favorites" class="nav-link">收藏</router-link>
+      </div>
+
+      <div class="auth-links">
         <template v-if="isAuthenticated">
-          <router-link to="/favorites" class="nav-link">收藏</router-link>
           <router-link to="/profile" class="nav-link user-link">
             <span class="user-avatar">{{ user?.username?.[0]?.toUpperCase() }}</span>
             <span class="user-name">{{ user?.username }}</span>
@@ -153,22 +155,31 @@ const handleLogout = () => {
 }
 
 .search-btn {
-  padding: 0.5rem 1rem;
-  background: var(--primary-color);
+  padding: 0;
+  background: none;
   border: none;
   border-radius: 9999px;
   cursor: pointer;
-  transition: background 0.2s;
+  font-size: 1.5rem;
+  color: var(--text-secondary);
+  transition: color 0.2s;
 }
 
 .search-btn:hover {
-  background: var(--primary-dark);
+  color: var(--text-primary);
 }
 
 .nav-links {
   display: flex;
   align-items: center;
   gap: 1.5rem;
+}
+
+.auth-links {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  margin-left: auto;
 }
 
 .nav-link {
