@@ -26,7 +26,7 @@
       <div class="auth-links">
         <template v-if="isAuthenticated">
           <router-link to="/profile" class="nav-link user-link">
-            <span class="user-avatar">{{ user?.username?.[0]?.toUpperCase() }}</span>
+            <span class="user-avatar" :style="{ backgroundImage: `url(${user?.avatarUrl || '/src/assets/avatars/default.svg'})` }"></span>
             <span class="user-name">{{ user?.username }}</span>
           </router-link>
           <button @click="handleLogout" class="btn btn-outline logout-btn">退出</button>
@@ -208,6 +208,9 @@ const handleLogout = () => {
   align-items: center;
   justify-content: center;
   font-weight: 600;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
 }
 
 .user-name {

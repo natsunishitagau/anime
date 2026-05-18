@@ -26,8 +26,14 @@ public class User {
     @Column(length = 100)
     private String signature;
 
+    @Column(name = "avatar_url", length = 500)
+    private String avatarUrl;
+
     @Column(nullable = false)
     private String password;
+
+    @Column(length = 20)
+    private String role = "USER";
 
     @Column(name = "created_at")
     private LocalDateTime createdAt;

@@ -15,6 +15,7 @@ instance.interceptors.request.use(
       fullUrl: `${config.baseURL}${config.url}`,
       params: config.params,
       data: config.data,
+      headers: config.headers
     })
     return config
   },
@@ -29,7 +30,7 @@ instance.interceptors.response.use(
     console.log('✅ 响应信息:', {
       status: response.status,
       statusText: response.statusText,
-      data: response.data
+      data: response.data,
     })
     return response
   },

@@ -2,8 +2,12 @@
   <div class="profile">
     <div class="container">
       <div class="profile-header">
-        <div class="avatar">
-          {{ user?.username?.[0]?.toUpperCase() }}
+        <div class="avatar-wrapper">
+          <label class="avatar" for="avatar-upload" :style="{ backgroundImage: avatarUrl ? `url(${avatarUrl})` : null }">
+            <span class="user-avatar" :style="{ backgroundImage: `url(${user?.avatarUrl || '/src/assets/avatars/default.svg'})` }"></span>
+            <span class="upload-hint">点击更换头像</span>
+          </label>
+          <input id="avatar-upload" type="file" accept="image/*" class="avatar-upload-input" @change="handleAvatarChange" />
         </div>
         <div class="user-info">
           <h1>{{ user?.username }}</h1>
@@ -80,6 +84,8 @@ const watchHistory = ref([])
 const userSignature = ref('')
 const editingSignature = ref(false)
 const signatureInputRef = ref(null)
+const avatarUrl = ref('')
+const defaultAvatarUrl = '/src/assets/avatars/default.svg'
 
 const formatDate = (dateString) => {
   if (!dateString) return ''
@@ -114,10 +120,52 @@ const saveSignature = async () => {
   }
 }
 
+const handleAvatarChange = async (event) => {
+  const file = event.target.files[0]
+  if (!file) return
+  
+  const reader = new FileReader()
+  reader.onload = async (e) => {
+    avatarUrl.value = e.target.result
+    
+    const formData = new FormData()
+    formData.append('avatar', file)
+    
+    try {
+      const response = await fetch('/api/user/avatar', {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${authStore.token}`
+        },
+        body: formData
+      })
+      const data = await response.json()
+      if (data.success && data.data && authStore.user) {
+        authStore.user.avatarUrl = data.data
+      }
+    } catch (error) {
+      console.error('Failed to upload avatar:', error)
+    }
+  }
+  reader.readAsDataURL(file)
+}
+
+const loadAvatar = () => {
+  if (user.value?.avatarUrl) {
+    avatarUrl.value = user.value.avatarUrl
+  } else {
+    avatarUrl.value = defaultAvatarUrl
+  }
+}
+
 watch(() => user.value?.signature, (val) => {
   if (!editingSignature.value) {
     userSignature.value = val || ''
   }
+}, { immediate: true })
+
+watch(() => user.value?.avatar, () => {
+  loadAvatar()
 }, { immediate: true })
 
 const fetchFavorites = async () => {
@@ -180,16 +228,64 @@ onMounted(async () => {
   margin-bottom: 2rem;
 }
 
+.avatar-wrapper {
+  position: relative;
+}
+
 .avatar {
   width: 100px;
   height: 100px;
   background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
   border-radius: 50%;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   font-size: 2.5rem;
   font-weight: 700;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  cursor: pointer;
+  transition: all 0.2s;
+  position: relative;
+}
+
+.avatar:hover {
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.avatar:hover .upload-hint {
+  opacity: 1;
+}
+
+.upload-hint {
+  position: absolute;
+  bottom: 8px;
+  font-size: 0.625rem;
+  color: rgba(255, 255, 255, 0.8);
+  background: rgba(0, 0, 0, 0.5);
+  padding: 2px 8px;
+  border-radius: 10px;
+  opacity: 0;
+  transition: opacity 0.2s;
+  white-space: nowrap;
+}
+
+.avatar:hover::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.avatar-upload-input {
+  display: none;
 }
 
 .user-info h1 {

@@ -8,7 +8,10 @@
           <label>类型</label>
           <select v-model="filters.type" @change="fetchAnime" class="input">
             <option value="">全部</option>
-            <option v-for="type in filterOptions.types" :key="type" :value="type">{{ type }}</option>
+            <option value="TV动画">TV动画</option>
+            <option value="剧场版">剧场版</option>
+            <option value="OVA">OVA</option>
+            <option value="其他">其他</option>
           </select>
         </div>
 
@@ -32,7 +35,7 @@
           <label>类型分类</label>
           <select v-model="filters.genre" @change="fetchAnime" class="input">
             <option value="">全部</option>
-            <option v-for="genre in filterOptions.genres" :key="genre" :value="genre">{{ genre }}</option>
+            <option v-for="genre in filteredGenres" :key="genre" :value="genre">{{ genre }}</option>
           </select>
         </div>
 
@@ -40,7 +43,8 @@
           <label>状态</label>
           <select v-model="filters.status" @change="fetchAnime" class="input">
             <option value="">全部</option>
-            <option v-for="status in filterOptions.statuses" :key="status" :value="status">{{ status }}</option>
+            <option value="连载中">连载中</option>
+            <option value="已完结">已完结</option>
           </select>
         </div>
 
@@ -68,7 +72,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, watch } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAnimeStore } from '../stores/anime'
 import AnimeCard from '../components/AnimeCard.vue'
@@ -96,6 +100,10 @@ const filterOptions = reactive({
   statuses: []
 })
 
+const filteredGenres = computed(() => {
+  return filterOptions.genres.filter(genre => genre && genre.trim() !== '')
+})
+
 const fetchAnime = async () => {
   loading.value = true
   try {
@@ -103,14 +111,24 @@ const fetchAnime = async () => {
       animeList.value = await animeStore.searchAnime(route.query.q)
     } else {
       const params = {}
-      if (filters.type) params.type = filters.type
       if (filters.season) params.season = filters.season
       if (filters.year) params.year = filters.year
       if (filters.genre) params.genre = filters.genre
       if (filters.status) params.status = filters.status
       
       await animeStore.fetchAnimeList(params)
-      animeList.value = animeStore.animeList
+      
+      if (filters.type === '其他') {
+        animeList.value = animeStore.animeList.filter(anime => 
+          anime.type !== 'TV动画' && anime.type !== '剧场版' && anime.type !== 'OVA'
+        )
+      } else if (filters.type) {
+        params.type = filters.type
+        await animeStore.fetchAnimeList(params)
+        animeList.value = animeStore.animeList
+      } else {
+        animeList.value = animeStore.animeList
+      }
     }
   } finally {
     loading.value = false

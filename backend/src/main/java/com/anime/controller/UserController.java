@@ -6,15 +6,26 @@ import com.anime.dto.DtoMapper;
 import com.anime.dto.UserPrincipal;
 import com.anime.entity.Anime;
 import com.anime.entity.Favorite;
+import com.anime.entity.User;
 import com.anime.entity.WatchHistory;
 import com.anime.repository.AnimeRepository;
 import com.anime.repository.FavoriteRepository;
 import com.anime.repository.UserRepository;
 import com.anime.repository.WatchHistoryRepository;
 import com.anime.service.RecommendationService;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
+import java.util.UUID;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -114,6 +125,62 @@ public class UserController {
         });
 
         return ResponseEntity.ok(ApiResponse.success("Signature updated", null));
+    }
+
+    @PutMapping(value = "/avatar", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<ApiResponse<String>> updateAvatar(
+            @RequestParam("avatar") MultipartFile file,
+            Authentication authentication) {
+        if (authentication == null) {
+            return ResponseEntity.status(401).body(ApiResponse.error("Authentication required"));
+        }
+
+        if (file.isEmpty()) {
+            return ResponseEntity.badRequest().body(ApiResponse.error("File is empty"));
+        }
+
+        UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
+        User user = userRepository.findById(userPrincipal.getId()).orElse(null);
+        if (user == null) {
+            return ResponseEntity.status(404).body(ApiResponse.error("User not found"));
+        }
+
+        String originalFilename = StringUtils.cleanPath(file.getOriginalFilename());
+        String extension = "";
+        int dotIndex = originalFilename.lastIndexOf('.');
+        if (dotIndex > 0) {
+            extension = originalFilename.substring(dotIndex);
+        }
+
+        String newFilename = UUID.randomUUID().toString() + extension;
+        
+        try {
+            Path uploadDir = Paths.get("uploads/avatars");
+            if (!Files.exists(uploadDir)) {
+                Files.createDirectories(uploadDir);
+            }
+            
+            Path targetLocation = uploadDir.resolve(newFilename);
+            Files.copy(file.getInputStream(), targetLocation, StandardCopyOption.REPLACE_EXISTING);
+            
+            String avatarUrl = "/uploads/avatars/" + newFilename;
+            
+            String oldAvatarUrl = user.getAvatarUrl();
+            if (oldAvatarUrl != null && oldAvatarUrl.startsWith("/uploads/avatars/")) {
+                String oldFilename = oldAvatarUrl.substring("/uploads/avatars/".length());
+                Path oldFilePath = uploadDir.resolve(oldFilename);
+                if (Files.exists(oldFilePath)) {
+                    Files.delete(oldFilePath);
+                }
+            }
+            
+            user.setAvatarUrl(avatarUrl);
+            userRepository.save(user);
+            
+            return ResponseEntity.ok(ApiResponse.success("Avatar updated", avatarUrl));
+        } catch (IOException e) {
+            return ResponseEntity.status(500).body(ApiResponse.error("Failed to upload avatar"));
+        }
     }
 
     static class UserControllerHelper {
