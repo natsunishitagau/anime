@@ -324,7 +324,7 @@ public class AnimeSyncService {
         int cleanedCount = 0;
 
         List<String> forbiddenTags = Arrays.asList("百合", "色情", 
-        "女扮男装", "邪典", "恐怖", "成人角色", "获奖作品");
+        "女扮男装", "邪典", "恐怖", "成人角色");
 
         for (Anime anime : allAnime) {
             String genres = anime.getGenres();
