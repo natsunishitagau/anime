@@ -1,19 +1,24 @@
 package com.anime.controller;
 
 import com.anime.dto.ApiResponse;
+import com.anime.dto.AnimeCharacterDto;
 import com.anime.dto.AnimeDto;
 import com.anime.dto.DtoMapper;
-import com.anime.dto.ReviewDto;
 import com.anime.dto.UserPrincipal;
 import com.anime.entity.Anime;
 import com.anime.entity.Character;
+import com.anime.entity.AnimeCharacter;
 import com.anime.entity.Favorite;
+import com.anime.entity.Genre;
 import com.anime.entity.Rating;
 import com.anime.entity.Review;
 import com.anime.repository.*;
 import com.anime.service.RecommendationService;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
@@ -26,20 +31,30 @@ public class AnimeController {
 
     private final AnimeRepository animeRepository;
     private final CharacterRepository characterRepository;
+    private final AnimeCharacterRepository animeCharacterRepository;
     private final ReviewRepository reviewRepository;
     private final FavoriteRepository favoriteRepository;
     private final RatingRepository ratingRepository;
+    private final GenreRepository genreRepository;
     private final RecommendationService recommendationService;
+    private final DtoMapper dtoMapper;
+    private final JdbcTemplate jdbcTemplate;
 
     public AnimeController(AnimeRepository animeRepository, CharacterRepository characterRepository,
-                           ReviewRepository reviewRepository, FavoriteRepository favoriteRepository,
-                           RatingRepository ratingRepository, RecommendationService recommendationService) {
+                           AnimeCharacterRepository animeCharacterRepository, ReviewRepository reviewRepository,
+                           FavoriteRepository favoriteRepository, RatingRepository ratingRepository,
+                           GenreRepository genreRepository, RecommendationService recommendationService,
+                           DtoMapper dtoMapper, JdbcTemplate jdbcTemplate) {
         this.animeRepository = animeRepository;
         this.characterRepository = characterRepository;
+        this.animeCharacterRepository = animeCharacterRepository;
         this.reviewRepository = reviewRepository;
         this.favoriteRepository = favoriteRepository;
         this.ratingRepository = ratingRepository;
+        this.genreRepository = genreRepository;
         this.recommendationService = recommendationService;
+        this.dtoMapper = dtoMapper;
+        this.jdbcTemplate = jdbcTemplate;
     }
 
     @GetMapping
@@ -51,9 +66,9 @@ public class AnimeController {
             @RequestParam(required = false) String status,
             @RequestParam(defaultValue = "20") int limit,
             @RequestParam(defaultValue = "0") int offset) {
-        
+
         List<Anime> animeList = animeRepository.findAll();
-        
+
         if (type != null) {
             animeList = animeList.stream().filter(a -> type.equals(a.getType())).collect(Collectors.toList());
         }
@@ -64,19 +79,24 @@ public class AnimeController {
             animeList = animeList.stream().filter(a -> year.equals(a.getYear())).collect(Collectors.toList());
         }
         if (genre != null) {
-            animeList = animeList.stream().filter(a -> a.getGenres() != null && a.getGenres().contains(genre)).collect(Collectors.toList());
+            final String genreName = genre;
+            animeList = animeList.stream()
+                    .filter(a -> a.getGenres() != null &&
+                            a.getGenres().stream()
+                                    .anyMatch(g -> g.getName().equals(genreName)))
+                    .collect(Collectors.toList());
         }
         if (status != null) {
             animeList = animeList.stream().filter(a -> status.equals(a.getStatus())).collect(Collectors.toList());
         }
-        
+
         List<AnimeDto> dtoList = animeList.stream()
                 .sorted((a, b) -> Double.compare(b.getScore(), a.getScore()))
                 .skip(offset)
                 .limit(limit)
-                .map(DtoMapper::toAnimeDto)
+                .map(dtoMapper::toAnimeDto)
                 .collect(Collectors.toList());
-        
+
         return ResponseEntity.ok(ApiResponse.success(dtoList));
     }
 
@@ -85,253 +105,222 @@ public class AnimeController {
         if (q == null || q.length() < 2) {
             return ResponseEntity.badRequest().body(ApiResponse.error("Search query must be at least 2 characters"));
         }
+
         List<Anime> results = animeRepository.searchAnime(q);
-        return ResponseEntity.ok(ApiResponse.success(DtoMapper.toAnimeDtoList(results)));
+        List<AnimeDto> dtoList = results.stream()
+                .map(dtoMapper::toAnimeDto)
+                .collect(Collectors.toList());
+
+        return ResponseEntity.ok(ApiResponse.success(dtoList));
     }
 
-    @GetMapping("/genres")
-    public ResponseEntity<ApiResponse<List<String>>> getGenres() {
-        Set<String> genreSet = new LinkedHashSet<>();
-        animeRepository.findAll().forEach(anime -> {
-            if (anime.getGenres() != null) {
-                Arrays.stream(anime.getGenres().split(","))
-                        .map(String::trim)
-                        .forEach(genreSet::add);
-            }
-        });
-        return ResponseEntity.ok(ApiResponse.success(new ArrayList<>(genreSet)));
-    }
+    @GetMapping("/search/page")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> searchAnimePage(
+            @RequestParam String keyword,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "20") int size) {
 
-    @GetMapping("/filters")
-    public ResponseEntity<ApiResponse<Map<String, Object>>> getFilters() {
-        Map<String, Object> filters = new HashMap<>();
-        
-        Set<String> genreSet = new LinkedHashSet<>();
-        animeRepository.findAll().forEach(anime -> {
-            if (anime.getGenres() != null) {
-                Arrays.stream(anime.getGenres().split(","))
-                        .map(String::trim)
-                        .forEach(genreSet::add);
-            }
-        });
-        filters.put("genres", new ArrayList<>(genreSet));
-        filters.put("seasons", Arrays.asList("春季", "夏季", "秋季", "冬季"));
-        filters.put("years", animeRepository.findDistinctYears());
-        filters.put("types", Arrays.asList("TV", "MOVIE", "OVA", "ONA", "SPECIAL"));
-        filters.put("statuses", Arrays.asList("播出中", "已完结", "即将播出"));
-        
-        return ResponseEntity.ok(ApiResponse.success(filters));
-    }
-
-    @GetMapping("/trending")
-    public ResponseEntity<ApiResponse<List<AnimeDto>>> getTrending(@RequestParam(defaultValue = "10") int limit) {
-        List<Anime> trending = recommendationService.getPopularAnime(limit);
-        return ResponseEntity.ok(ApiResponse.success(DtoMapper.toAnimeDtoList(trending)));
-    }
-
-    @GetMapping("/top-rated")
-    public ResponseEntity<ApiResponse<List<AnimeDto>>> getTopRated(@RequestParam(defaultValue = "20") int limit) {
-        List<Anime> topRated = animeRepository.findTopRated(PageRequest.of(0, limit));
-        return ResponseEntity.ok(ApiResponse.success(DtoMapper.toAnimeDtoList(topRated)));
-    }
-
-    @GetMapping("/seasonal")
-    public ResponseEntity<ApiResponse<List<AnimeDto>>> getSeasonal(
-            @RequestParam(required = false) String season,
-            @RequestParam(required = false) Integer year,
-            @RequestParam(defaultValue = "20") int limit) {
-        List<Anime> seasonal = recommendationService.getSeasonalAnime(season, year, limit);
-        return ResponseEntity.ok(ApiResponse.success(DtoMapper.toAnimeDtoList(seasonal)));
-    }
-
-    @GetMapping("/by-genre/{genre}")
-    public ResponseEntity<ApiResponse<List<AnimeDto>>> getByGenre(
-            @PathVariable String genre,
-            @RequestParam(defaultValue = "20") int limit) {
-        List<Anime> anime = recommendationService.getAnimeByGenre(genre, limit);
-        return ResponseEntity.ok(ApiResponse.success(DtoMapper.toAnimeDtoList(anime)));
-    }
-
-    @GetMapping("/recommendations")
-    public ResponseEntity<ApiResponse<Map<String, Object>>> getRecommendations(
-            Authentication authentication,
-            @RequestParam(defaultValue = "20") int limit) {
-        
-        Map<String, Object> response = new HashMap<>();
-        
-        if (authentication == null) {
-            response.put("anime", DtoMapper.toAnimeDtoList(recommendationService.getPopularAnime(limit)));
-            response.put("personalized", false);
-        } else {
-            UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
-            response.put("anime", DtoMapper.toAnimeDtoList(recommendationService.getRecommendations(userPrincipal.getId(), limit)));
-            response.put("personalized", true);
+        if (keyword == null || keyword.length() < 2) {
+            return ResponseEntity.badRequest().body(ApiResponse.error("Search query must be at least 2 characters"));
         }
-        
-        return ResponseEntity.ok(ApiResponse.success(response));
-    }
 
-    @GetMapping("/collaborative")
-    public ResponseEntity<ApiResponse<List<AnimeDto>>> getCollaborative(
-            Authentication authentication,
-            @RequestParam(defaultValue = "20") int limit) {
-        
-        if (authentication == null) {
-            return ResponseEntity.status(401).body(ApiResponse.error("Authentication required"));
-        }
-        
-        UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
-        List<Anime> recommendations = recommendationService.getCollaborativeRecommendations(userPrincipal.getId(), limit);
-        return ResponseEntity.ok(ApiResponse.success(DtoMapper.toAnimeDtoList(recommendations)));
+        Pageable pageable = PageRequest.of(page - 1, size);
+        Page<Anime> animePage = animeRepository.searchAnimePage(keyword, pageable);
+
+        List<AnimeDto> dtoList = animePage.getContent().stream()
+                .map(dtoMapper::toAnimeDto)
+                .collect(Collectors.toList());
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("content", dtoList);
+        result.put("totalElements", animePage.getTotalElements());
+        result.put("totalPages", animePage.getTotalPages());
+        result.put("currentPage", page);
+        result.put("pageSize", size);
+
+        return ResponseEntity.ok(ApiResponse.success(result));
     }
 
     @GetMapping("/{id}")
     public ResponseEntity<ApiResponse<Map<String, Object>>> getAnimeById(
             @PathVariable Long id,
             Authentication authentication) {
-        
+
         Optional<Anime> animeOpt = animeRepository.findById(id);
         if (animeOpt.isEmpty()) {
             return ResponseEntity.status(404).body(ApiResponse.error("Anime not found"));
         }
 
         Anime anime = animeOpt.get();
-        List<Character> characters = characterRepository.findByAnimeId(id);
+
+        List<AnimeCharacter> animeCharacters = animeCharacterRepository.findByAnimeId(id);
         List<Review> reviews = reviewRepository.findByAnimeIdOrderByCreatedAtDesc(id);
         List<Anime> similarAnime = recommendationService.getSimilarAnime(id, 8);
 
-        Map<String, Object> response = new HashMap<>();
-        response.put("anime", DtoMapper.toAnimeDto(anime));
-        response.put("characters", DtoMapper.toCharacterDtoList(characters));
-        response.put("reviews", DtoMapper.toReviewDtoList(reviews));
-        response.put("similarAnime", DtoMapper.toAnimeDtoList(similarAnime));
+        List<AnimeCharacterDto> characterDtos = animeCharacters.stream()
+                .map(ac -> {
+                    Character character = characterRepository.findById(ac.getCharacterId()).orElse(null);
+                    if (character == null) return null;
+                    return new AnimeCharacterDto(
+                            character.getId(),
+                            character.getName(),
+                            character.getNameJp(),
+                            ac.getRole(),
+                            character.getImageUrl(),
+                            character.getFavorites()
+                    );
+                })
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
 
-        if (authentication != null) {
+        Map<String, Object> response = new HashMap<>();
+        response.put("characters", characterDtos);
+        response.put("reviews", reviews.stream().map(dtoMapper::toReviewDto).collect(Collectors.toList()));
+        response.put("similarAnime", similarAnime.stream().map(dtoMapper::toAnimeDto).collect(Collectors.toList()));
+
+        boolean isFavorited = false;
+        if (authentication != null && authentication.getPrincipal() instanceof UserPrincipal) {
             UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
-            response.put("isFavorited", favoriteRepository.existsByUserIdAndAnimeId(userPrincipal.getId(), id));
-            Optional<Rating> userRating = ratingRepository.findByUserIdAndAnimeId(userPrincipal.getId(), id);
-            response.put("userRating", userRating.map(Rating::getRating).orElse(null));
-        } else {
-            response.put("isFavorited", false);
-            response.put("userRating", null);
+            Optional<Favorite> favorite = favoriteRepository.findByUserIdAndAnimeId(userPrincipal.getId(), id);
+            isFavorited = favorite.isPresent();
         }
+        response.put("isFavorited", isFavorited);
+
+        response.put("anime", dtoMapper.toAnimeDto(anime));
+
+        Integer userRating = null;
+        if (authentication != null && authentication.getPrincipal() instanceof UserPrincipal) {
+            UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
+            Optional<Rating> rating = ratingRepository.findByUserIdAndAnimeId(userPrincipal.getId(), id);
+            if (rating.isPresent()) {
+                userRating = rating.get().getRating();
+            }
+        }
+        response.put("userRating", userRating);
 
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
-    @GetMapping("/{id}/similar")
-    public ResponseEntity<ApiResponse<List<AnimeDto>>> getSimilarAnime(
-            @PathVariable Long id,
+    @GetMapping("/{id}/genres")
+    public ResponseEntity<?> getAnimeGenres(@PathVariable Long id) {
+        String sql = "SELECT g.id, g.name FROM genres g " +
+                     "JOIN anime_genre ag ON g.id = ag.genre_id " +
+                     "WHERE ag.anime_id = ?";
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, id);
+
+        String titleSql = "SELECT title FROM anime WHERE id = ?";
+        String title = jdbcTemplate.queryForObject(titleSql, String.class, id);
+
+        List<Map<String, Object>> genreList = rows.stream()
+                .map(row -> Map.of("id", row.get("id"), "name", row.get("name")))
+                .collect(Collectors.toList());
+
+        return ResponseEntity.ok(Map.of(
+            "animeId", id,
+            "title", title != null ? title : "",
+            "genresIsNull", false,
+            "genresSize", genreList.size(),
+            "genres", genreList
+        ));
+    }
+
+    @GetMapping("/trending")
+    public ResponseEntity<ApiResponse<List<AnimeDto>>> getTrendingAnime(
             @RequestParam(defaultValue = "10") int limit) {
-        List<Anime> similar = recommendationService.getSimilarAnime(id, limit);
-        return ResponseEntity.ok(ApiResponse.success(DtoMapper.toAnimeDtoList(similar)));
+        List<Anime> trendingAnime = animeRepository.findTopRated(PageRequest.of(0, limit));
+        List<AnimeDto> dtoList = trendingAnime.stream()
+                .map(dtoMapper::toAnimeDto)
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(ApiResponse.success(dtoList));
     }
 
-    @GetMapping("/{id}/reviews")
-    public ResponseEntity<ApiResponse<List<ReviewDto>>> getReviews(
-            @PathVariable Long id) {
-        List<Review> reviews = reviewRepository.findRecentReviewsByAnimeId(id);
-        return ResponseEntity.ok(ApiResponse.success(DtoMapper.toReviewDtoList(reviews)));
+    @GetMapping("/top-rated")
+    public ResponseEntity<ApiResponse<List<AnimeDto>>> getTopRatedAnime(
+            @RequestParam(defaultValue = "10") int limit) {
+        List<Anime> topRatedAnime = animeRepository.findTopRated(PageRequest.of(0, limit));
+        List<AnimeDto> dtoList = topRatedAnime.stream()
+                .map(dtoMapper::toAnimeDto)
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(ApiResponse.success(dtoList));
     }
 
-    @PostMapping("/{id}/favorite")
-    public ResponseEntity<ApiResponse<Void>> toggleFavorite(
-            @PathVariable Long id,
-            Authentication authentication) {
-        
-        if (authentication == null) {
-            return ResponseEntity.status(401).body(ApiResponse.error("Authentication required"));
-        }
+    @GetMapping("/recommendations")
+    public ResponseEntity<ApiResponse<List<AnimeDto>>> getRecommendations(
+            @RequestParam(defaultValue = "10") int limit) {
+        List<Anime> allAnime = animeRepository.findAll();
+        List<Anime> recommendations = allAnime.stream()
+                .sorted((a, b) -> Double.compare(b.getScore(), a.getScore()))
+                .limit(limit)
+                .collect(Collectors.toList());
+        List<AnimeDto> dtoList = recommendations.stream()
+                .map(dtoMapper::toAnimeDto)
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(ApiResponse.success(dtoList));
+    }
 
-        UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
-        Optional<Anime> animeOpt = animeRepository.findById(id);
-        
-        if (animeOpt.isEmpty()) {
-            return ResponseEntity.status(404).body(ApiResponse.error("Anime not found"));
-        }
-
-        Optional<Favorite> existing = favoriteRepository.findByUserIdAndAnimeId(userPrincipal.getId(), id);
-        
-        if (existing.isPresent()) {
-            favoriteRepository.delete(existing.get());
-            return ResponseEntity.ok(ApiResponse.success("Removed from favorites", null));
+    @GetMapping("/seasonal")
+    public ResponseEntity<ApiResponse<List<AnimeDto>>> getSeasonalAnime(
+            @RequestParam(required = false) String season,
+            @RequestParam(defaultValue = "10") int limit) {
+        List<Anime> animeList = animeRepository.findAll();
+        if (season != null && !season.isEmpty()) {
+            animeList = animeList.stream()
+                    .filter(a -> season.equals(a.getSeason()))
+                    .sorted((a, b) -> Double.compare(b.getScore(), a.getScore()))
+                    .limit(limit)
+                    .collect(Collectors.toList());
         } else {
-            Favorite favorite = new Favorite();
-            favorite.setUserId(userPrincipal.getId());
-            favorite.setAnimeId(id);
-            favoriteRepository.save(favorite);
-            return ResponseEntity.ok(ApiResponse.success("Added to favorites", null));
+            animeList = animeList.stream()
+                    .sorted((a, b) -> Double.compare(b.getScore(), a.getScore()))
+                    .limit(limit)
+                    .collect(Collectors.toList());
         }
+        List<AnimeDto> dtoList = animeList.stream()
+                .map(dtoMapper::toAnimeDto)
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(ApiResponse.success(dtoList));
     }
 
-    @PostMapping("/{id}/rate")
-    public ResponseEntity<ApiResponse<Void>> rateAnime(
-            @PathVariable Long id,
-            @RequestParam int rating,
-            Authentication authentication) {
-        
-        if (authentication == null) {
-            return ResponseEntity.status(401).body(ApiResponse.error("Authentication required"));
-        }
-
-        if (rating < 1 || rating > 10) {
-            return ResponseEntity.badRequest().body(ApiResponse.error("Rating must be between 1 and 10"));
-        }
-
-        UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
-        Optional<Anime> animeOpt = animeRepository.findById(id);
-        
-        if (animeOpt.isEmpty()) {
-            return ResponseEntity.status(404).body(ApiResponse.error("Anime not found"));
-        }
-
-        Optional<Rating> existing = ratingRepository.findByUserIdAndAnimeId(userPrincipal.getId(), id);
-        
-        Rating ratingEntity = existing.orElse(new Rating());
-        ratingEntity.setUserId(userPrincipal.getId());
-        ratingEntity.setAnimeId(id);
-        ratingEntity.setRating(rating);
-        ratingRepository.save(ratingEntity);
-
-        return ResponseEntity.ok(ApiResponse.success("Rating saved", null));
+    @GetMapping("/years")
+    public ResponseEntity<ApiResponse<List<Integer>>> getDistinctYears() {
+        List<Integer> years = animeRepository.findDistinctYears();
+        return ResponseEntity.ok(ApiResponse.success(years));
     }
 
-    @PostMapping("/{id}/review")
-    public ResponseEntity<ApiResponse<Review>> addReview(
-            @PathVariable Long id,
-            @RequestParam int rating,
-            @RequestParam(required = false) String comment,
-            Authentication authentication) {
-        
-        if (authentication == null) {
-            return ResponseEntity.status(401).body(ApiResponse.error("Authentication required"));
-        }
+    @GetMapping("/genres")
+    public ResponseEntity<ApiResponse<List<Map<String, Object>>>> getAllGenres() {
+        List<Genre> genres = genreRepository.findAll();
+        List<Map<String, Object>> genreList = genres.stream()
+                .map(g -> {
+                    Map<String, Object> map = new HashMap<>();
+                    map.put("id", g.getId());
+                    map.put("name", g.getName());
+                    return map;
+                })
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(ApiResponse.success(genreList));
+    }
 
-        if (rating < 1 || rating > 10) {
-            return ResponseEntity.badRequest().body(ApiResponse.error("Rating must be between 1 and 10"));
-        }
+    @GetMapping("/filters")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getFilters() {
+        List<Genre> genres = genreRepository.findAll();
+        List<Integer> years = animeRepository.findDistinctYears();
 
-        UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
-        Optional<Anime> animeOpt = animeRepository.findById(id);
-        
-        if (animeOpt.isEmpty()) {
-            return ResponseEntity.status(404).body(ApiResponse.error("Anime not found"));
-        }
+        List<String> seasons = List.of("春", "夏", "秋", "冬");
+        List<String> types = List.of("TV动画", "剧场版", "OVA", "其他");
+        List<String> statuses = List.of("连载中", "已完结");
 
-        Rating ratingEntity = new Rating();
-        ratingEntity.setUserId(userPrincipal.getId());
-        ratingEntity.setAnimeId(id);
-        ratingEntity.setRating(rating);
-        ratingRepository.save(ratingEntity);
+        List<String> genreNames = genres.stream()
+                .map(Genre::getName)
+                .collect(Collectors.toList());
 
-        Review review = new Review();
-        review.setUserId(userPrincipal.getId());
-        review.setAnimeId(id);
-        review.setRating(rating);
-        review.setComment(comment);
-        Review savedReview = reviewRepository.save(review);
-        savedReview.setUsername(userPrincipal.getUsername());
+        Map<String, Object> filters = new HashMap<>();
+        filters.put("genres", genreNames);
+        filters.put("seasons", seasons);
+        filters.put("years", years);
+        filters.put("types", types);
+        filters.put("statuses", statuses);
 
-        return ResponseEntity.ok(ApiResponse.success("Review added", savedReview));
+        return ResponseEntity.ok(ApiResponse.success(filters));
     }
 }

@@ -36,14 +36,17 @@ public class UserController {
 
     private final UserControllerHelper helper;
     private final UserRepository userRepository;
+    private final DtoMapper dtoMapper;
 
     public UserController(FavoriteRepository favoriteRepository, 
                           WatchHistoryRepository watchHistoryRepository,
                           AnimeRepository animeRepository,
                           RecommendationService recommendationService,
-                          UserRepository userRepository) {
-        this.helper = new UserControllerHelper(favoriteRepository, watchHistoryRepository, animeRepository, recommendationService);
+                          UserRepository userRepository,
+                          DtoMapper dtoMapper) {
+        this.helper = new UserControllerHelper(favoriteRepository, watchHistoryRepository, animeRepository, recommendationService, dtoMapper);
         this.userRepository = userRepository;
+        this.dtoMapper = dtoMapper;
     }
 
     @GetMapping("/favorites")
@@ -52,7 +55,7 @@ public class UserController {
             return ResponseEntity.status(401).body(ApiResponse.error("Authentication required"));
         }
         UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
-        return ResponseEntity.ok(ApiResponse.success(DtoMapper.toAnimeDtoList(helper.getFavorites(userPrincipal.getId()))));
+        return ResponseEntity.ok(ApiResponse.success(dtoMapper.toAnimeDtoList(helper.getFavorites(userPrincipal.getId()))));
     }
 
     @DeleteMapping("/favorites/{animeId}")
@@ -102,7 +105,7 @@ public class UserController {
         }
         
         UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
-        return ResponseEntity.ok(ApiResponse.success(DtoMapper.toAnimeDtoList(helper.getRecommendations(userPrincipal.getId(), limit))));
+        return ResponseEntity.ok(ApiResponse.success(dtoMapper.toAnimeDtoList(helper.getRecommendations(userPrincipal.getId(), limit))));
     }
 
     @PutMapping("/signature")
@@ -188,15 +191,18 @@ public class UserController {
         private final WatchHistoryRepository watchHistoryRepository;
         private final AnimeRepository animeRepository;
         private final RecommendationService recommendationService;
+        private final DtoMapper dtoMapper;
 
         UserControllerHelper(FavoriteRepository favoriteRepository,
                             WatchHistoryRepository watchHistoryRepository,
                             AnimeRepository animeRepository,
-                            RecommendationService recommendationService) {
+                            RecommendationService recommendationService,
+                            DtoMapper dtoMapper) {
             this.favoriteRepository = favoriteRepository;
             this.watchHistoryRepository = watchHistoryRepository;
             this.animeRepository = animeRepository;
             this.recommendationService = recommendationService;
+            this.dtoMapper = dtoMapper;
         }
 
         List<Anime> getFavorites(Long userId) {
@@ -218,7 +224,7 @@ public class UserController {
                     .map(h -> {
                         Map<String, Object> map = new HashMap<>();
                         animeRepository.findById(h.getAnimeId()).ifPresent(anime -> {
-                            map.put("anime", DtoMapper.toAnimeDto(anime));
+                            map.put("anime", dtoMapper.toAnimeDto(anime));
                             map.put("progress", h.getProgress());
                             map.put("completed", h.getCompleted());
                             map.put("updatedAt", h.getUpdatedAt());

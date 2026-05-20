@@ -7,10 +7,7 @@ import lombok.NoArgsConstructor;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public class CharacterDto {
+public class GenreDto {
     private Long id;
     private String name;
-    private String nameJp;
-    private String imageUrl;
-    private Integer favorites;
 }

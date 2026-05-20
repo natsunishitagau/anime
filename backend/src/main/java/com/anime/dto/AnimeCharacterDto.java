@@ -7,10 +7,11 @@ import lombok.NoArgsConstructor;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public class CharacterDto {
+public class AnimeCharacterDto {
     private Long id;
     private String name;
     private String nameJp;
+    private String role;
     private String imageUrl;
     private Integer favorites;
 }

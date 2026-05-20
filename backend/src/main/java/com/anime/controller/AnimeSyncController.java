@@ -34,4 +34,22 @@ public class AnimeSyncController {
         String result = animeSyncService.cleanAnimeData();
         return ResponseEntity.ok(result);
     }
+
+    @PostMapping("/sync/anime/{animeId}/characters")
+    public ResponseEntity<String> syncAnimeCharacters(@PathVariable Long animeId) {
+        String result = animeSyncService.syncAnimeCharacters(animeId);
+        return ResponseEntity.ok(result);
+    }
+
+    @PostMapping("/sync/anime/{animeId}/genres")
+    public ResponseEntity<String> syncAnimeGenres(@PathVariable Long animeId) {
+        String result = animeSyncService.syncAnimeGenres(animeId);
+        return ResponseEntity.ok(result);
+    }
+
+    @PostMapping("/sync/genres/all")
+    public ResponseEntity<String> syncAllAnimeGenres() {
+        String result = animeSyncService.syncAllAnimeGenres();
+        return ResponseEntity.ok(result);
+    }
 }

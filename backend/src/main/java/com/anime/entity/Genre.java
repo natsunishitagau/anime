@@ -8,27 +8,19 @@ import lombok.EqualsAndHashCode;
 import java.util.Set;
 
 @Entity
-@Table(name = "characters")
+@Table(name = "genres")
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
 @EqualsAndHashCode(exclude = {"animes"})
-public class Character {
+public class Genre {
     @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false)
+    @Column(nullable = false, unique = true)
     private String name;
 
-    @Column(name = "name_jp")
-    private String nameJp;
-
-    @Column(name = "image_url")
-    private String imageUrl;
-
-    @Column(name = "favorites")
-    private Integer favorites;
-
-    @ManyToMany(mappedBy = "characters")
+    @ManyToMany(mappedBy = "genres")
     private Set<Anime> animes;
 }

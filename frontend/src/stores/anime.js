@@ -103,6 +103,25 @@ export const useAnimeStore = defineStore('anime', {
       }
     },
 
+    async searchAnimePage(keyword, page = 1, size = 20) {
+      this.loading = true
+      try {
+        const response = await axios.get(`${API_URL}/search/page`, {
+          params: {
+            keyword,
+            page,
+            size
+          }
+        })
+        return response.data.data
+      } catch (error) {
+        this.error = error.response?.data?.message || 'Search failed'
+        return { content: [], totalElements: 0, totalPages: 1, currentPage: 1, pageSize: size }
+      } finally {
+        this.loading = false
+      }
+    },
+
     async toggleFavorite(animeId) {
       try {
         const response = await axios.post(`${API_URL}/${animeId}/favorite`)

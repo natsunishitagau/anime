@@ -37,6 +37,11 @@ const routes = [
     name: 'Favorites',
     component: () => import('../views/Favorites.vue'),
     meta: { requiresAuth: true }
+  },
+  {
+    path: '/search',
+    name: 'Search',
+    component: () => import('../views/SearchResult.vue')
   }
 ]
 
@@ -45,14 +50,23 @@ const router = createRouter({
   routes
 })
 
+const publicPaths = ['/', '/login', '/register', '/search']
+
 router.beforeEach((to, from, next) => {
   const token = localStorage.getItem('token')
-  
-  if (to.meta.requiresAuth && !token) {
+  const isAuthenticated = !!token
+
+  if (to.meta.requiresAuth && !isAuthenticated) {
     next({ name: 'Login', query: { redirect: to.fullPath } })
-  } else {
-    next()
+    return
   }
+
+  if (!isAuthenticated && !publicPaths.includes(to.path)) {
+    next({ name: 'Login', query: { redirect: to.fullPath } })
+    return
+  }
+
+  next()
 })
 
 export default router

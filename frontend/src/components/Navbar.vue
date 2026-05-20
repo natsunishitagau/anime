@@ -77,7 +77,7 @@ const user = computed(() => authStore.currentUser)
 
 const handleSearch = () => {
   if (searchQuery.value.trim()) {
-    router.push({ name: 'Browse', query: { q: searchQuery.value } })
+    router.push({ name: 'Search', query: { keyword: searchQuery.value } })
     searchQuery.value = ''
   }
 }

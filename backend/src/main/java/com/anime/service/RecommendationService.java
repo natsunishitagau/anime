@@ -1,6 +1,7 @@
 package com.anime.service;
 
 import com.anime.entity.Anime;
+import com.anime.entity.Genre;
 import com.anime.repository.AnimeRepository;
 import org.springframework.stereotype.Service;
 
@@ -34,7 +35,9 @@ public class RecommendationService {
 
     public List<Anime> getAnimeByGenre(String genre, int limit) {
         return animeRepository.findAll().stream()
-                .filter(a -> a.getGenres() != null && a.getGenres().contains(genre))
+                .filter(a -> a.getGenres() != null &&
+                        a.getGenres().stream()
+                                .anyMatch(g -> g.getName().equals(genre)))
                 .sorted((a, b) -> Double.compare(b.getScore(), a.getScore()))
                 .limit(limit)
                 .collect(Collectors.toList());
@@ -55,18 +58,20 @@ public class RecommendationService {
         }
 
         Anime anime = targetAnime.get();
-        String targetGenres = anime.getGenres();
+        Set<String> targetGenreNames = anime.getGenres() != null ?
+                anime.getGenres().stream()
+                        .map(Genre::getName)
+                        .collect(Collectors.toSet()) : Set.of();
 
         return animeRepository.findAll().stream()
                 .filter(a -> !a.getId().equals(animeId) && a.getGenres() != null)
                 .filter(a -> {
-                    String[] targetGenreArray = targetGenres.split(",");
-                    String[] animeGenreArray = a.getGenres().split(",");
-                    for (String targetGenre : targetGenreArray) {
-                        for (String animeGenre : animeGenreArray) {
-                            if (targetGenre.trim().equals(animeGenre.trim())) {
-                                return true;
-                            }
+                    Set<String> animeGenreNames = a.getGenres().stream()
+                            .map(Genre::getName)
+                            .collect(Collectors.toSet());
+                    for (String targetGenre : targetGenreNames) {
+                        if (animeGenreNames.contains(targetGenre)) {
+                            return true;
                         }
                     }
                     return false;

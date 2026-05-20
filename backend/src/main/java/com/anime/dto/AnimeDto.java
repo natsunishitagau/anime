@@ -3,6 +3,7 @@ package com.anime.dto;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
+import java.util.List;
 
 @Data
 @NoArgsConstructor
@@ -20,7 +21,7 @@ public class AnimeDto {
     private Integer year;
     private String status;
     private String studios;
-    private String genres;
+    private List<GenreDto> genres;
     private String source;
 }
 
@@ -29,20 +30,9 @@ public class AnimeDto {
 @AllArgsConstructor
 class AnimeDetailDto {
     private AnimeDto anime;
-    private java.util.List<CharacterDto> characters;
-    private java.util.List<ReviewDto> reviews;
-    private java.util.List<AnimeDto> similarAnime;
+    private List<CharacterDto> characters;
+    private List<ReviewDto> reviews;
+    private List<AnimeDto> similarAnime;
     private Boolean isFavorited;
     private Integer userRating;
-}
-
-@Data
-@NoArgsConstructor
-@AllArgsConstructor
-class CharacterDto {
-    private Long id;
-    private String name;
-    private String nameJp;
-    private String role;
-    private String imageUrl;
 }

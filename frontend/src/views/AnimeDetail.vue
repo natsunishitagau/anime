@@ -11,7 +11,7 @@
             <div class="anime-info">
               <h1>{{ anime.anime.title }}</h1>
               <p class="title-jp" v-if="anime.anime.titleJp">{{ anime.anime.titleJp }}</p>
-              
+
               <div class="meta-list">
                 <span class="meta-item" v-if="anime.anime.type">{{ anime.anime.type }}</span>
                 <span class="meta-item" v-if="anime.anime.episodes">{{ anime.anime.episodes }}话</span>
@@ -25,9 +25,9 @@
                 <span class="score-value">{{ anime.anime.score.toFixed(1) }}</span>
               </div>
 
-              <div class="genres" v-if="anime.anime.genres">
-                <span class="genre-tag" v-for="genre in anime.anime.genres.split(',')" :key="genre">
-                  {{ genre.trim() }}
+              <div class="genres" v-if="anime.anime.genres && anime.anime.genres.length > 0">
+                <span class="genre-tag" v-for="genre in anime.anime.genres" :key="genre.id">
+                  {{ genre.name }}
                 </span>
               </div>
 

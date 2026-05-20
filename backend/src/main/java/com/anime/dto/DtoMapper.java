@@ -2,15 +2,38 @@ package com.anime.dto;
 
 import com.anime.entity.Anime;
 import com.anime.entity.Character;
+import com.anime.entity.Genre;
 import com.anime.entity.Review;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
+@Component
 public class DtoMapper {
 
-    public static AnimeDto toAnimeDto(Anime anime) {
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    public AnimeDto toAnimeDto(Anime anime) {
         if (anime == null) return null;
+        
+        // 直接查询 genres
+        List<GenreDto> genreDtos = null;
+        String sql = "SELECT g.id, g.name FROM genres g " +
+                     "JOIN anime_genre ag ON g.id = ag.genre_id " +
+                     "WHERE ag.anime_id = ?";
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, anime.getId());
+        genreDtos = rows.stream()
+                .map(row -> new GenreDto(
+                        (Long) row.get("id"),
+                        (String) row.get("name")
+                ))
+                .collect(Collectors.toList());
+        
         return new AnimeDto(
                 anime.getId(),
                 anime.getTitle(),
@@ -24,37 +47,45 @@ public class DtoMapper {
                 anime.getYear(),
                 anime.getStatus(),
                 anime.getStudios(),
-                anime.getGenres(),
+                genreDtos,
                 anime.getSource()
         );
     }
 
-    public static List<AnimeDto> toAnimeDtoList(List<Anime> animeList) {
+    public List<AnimeDto> toAnimeDtoList(List<Anime> animeList) {
         if (animeList == null) return List.of();
         return animeList.stream()
-                .map(DtoMapper::toAnimeDto)
+                .map(this::toAnimeDto)
                 .collect(Collectors.toList());
     }
 
-    public static CharacterDto toCharacterDto(Character character) {
+    public GenreDto toGenreDto(Genre genre) {
+        if (genre == null) return null;
+        return new GenreDto(
+                genre.getId(),
+                genre.getName()
+        );
+    }
+
+    public CharacterDto toCharacterDto(Character character) {
         if (character == null) return null;
         return new CharacterDto(
                 character.getId(),
                 character.getName(),
                 character.getNameJp(),
-                character.getRole(),
-                character.getImageUrl()
+                character.getImageUrl(),
+                character.getFavorites()
         );
     }
 
-    public static List<CharacterDto> toCharacterDtoList(List<Character> characters) {
+    public List<CharacterDto> toCharacterDtoList(List<Character> characters) {
         if (characters == null) return List.of();
         return characters.stream()
-                .map(DtoMapper::toCharacterDto)
+                .map(this::toCharacterDto)
                 .collect(Collectors.toList());
     }
 
-    public static ReviewDto toReviewDto(Review review) {
+    public ReviewDto toReviewDto(Review review) {
         if (review == null) return null;
         return new ReviewDto(
                 review.getId(),
@@ -67,10 +98,10 @@ public class DtoMapper {
         );
     }
 
-    public static List<ReviewDto> toReviewDtoList(List<Review> reviews) {
+    public List<ReviewDto> toReviewDtoList(List<Review> reviews) {
         if (reviews == null) return List.of();
         return reviews.stream()
-                .map(DtoMapper::toReviewDto)
+                .map(this::toReviewDto)
                 .collect(Collectors.toList());
     }
 }

@@ -1,22 +1,34 @@
 package com.anime.service;
 
 import com.anime.entity.Anime;
+import com.anime.entity.Character;
+import com.anime.entity.AnimeCharacter;
+import com.anime.entity.Genre;
+import com.anime.entity.AnimeGenre;
 import com.anime.repository.AnimeRepository;
+import com.anime.repository.CharacterRepository;
+import com.anime.repository.AnimeCharacterRepository;
+import com.anime.repository.GenreRepository;
+import com.anime.repository.AnimeGenreRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 
 import java.util.*;
-import java.util.Arrays;
 
 @Service
 public class AnimeSyncService {
 
     private final AnimeRepository animeRepository;
+    private final CharacterRepository characterRepository;
+    private final AnimeCharacterRepository animeCharacterRepository;
+    private final GenreRepository genreRepository;
+    private final AnimeGenreRepository animeGenreRepository;
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
 
@@ -25,6 +37,8 @@ public class AnimeSyncService {
     private static final Map<String, String> STATUS_TRANSLATIONS = new HashMap<>();
     private static final Map<String, String> SOURCE_TRANSLATIONS = new HashMap<>();
     private static final Map<String, String> SEASON_TRANSLATIONS = new HashMap<>();
+    private static final Map<String, String> ROLE_TRANSLATIONS = new HashMap<>();
+    private static final Set<String> FORBIDDEN_TAGS = new HashSet<>(Arrays.asList("百合", "色情", "女扮男装", "邪典", "恐怖", "成人角色"));
 
     static {
         GENRE_TRANSLATIONS.put("Action", "动作");
@@ -112,10 +126,19 @@ public class AnimeSyncService {
         SEASON_TRANSLATIONS.put("summer", "夏季");
         SEASON_TRANSLATIONS.put("fall", "秋季");
         SEASON_TRANSLATIONS.put("winter", "冬季");
+
+        ROLE_TRANSLATIONS.put("Main", "主角");
+        ROLE_TRANSLATIONS.put("Supporting", "配角");
     }
 
-    public AnimeSyncService(AnimeRepository animeRepository) {
+    public AnimeSyncService(AnimeRepository animeRepository, CharacterRepository characterRepository,
+                          AnimeCharacterRepository animeCharacterRepository, GenreRepository genreRepository,
+                          AnimeGenreRepository animeGenreRepository) {
         this.animeRepository = animeRepository;
+        this.characterRepository = characterRepository;
+        this.animeCharacterRepository = animeCharacterRepository;
+        this.genreRepository = genreRepository;
+        this.animeGenreRepository = animeGenreRepository;
         this.restTemplate = new RestTemplate();
         this.objectMapper = new ObjectMapper();
     }
@@ -181,6 +204,50 @@ public class AnimeSyncService {
         return String.format("导入完成，共 %d 条数据", totalImported);
     }
 
+    private Set<Genre> translateAndSaveGenres(JsonNode node) {
+        Set<Genre> genreSet = new HashSet<>();
+
+        List<String> allGenreNames = new ArrayList<>();
+
+        JsonNode genres = node.get("genres");
+        if (genres != null && genres.isArray()) {
+            for (JsonNode genre : genres) {
+                String name = genre.get("name").asText();
+                String translated = GENRE_TRANSLATIONS.getOrDefault(name, name);
+                allGenreNames.add(translated);
+            }
+        }
+
+        JsonNode themes = node.get("themes");
+        if (themes != null && themes.isArray()) {
+            for (JsonNode theme : themes) {
+                String name = theme.get("name").asText();
+                String translated = GENRE_TRANSLATIONS.getOrDefault(name, name);
+                allGenreNames.add(translated);
+            }
+        }
+
+        JsonNode demographics = node.get("demographics");
+        if (demographics != null && demographics.isArray()) {
+            for (JsonNode demo : demographics) {
+                String name = demo.get("name").asText();
+                String translated = GENRE_TRANSLATIONS.getOrDefault(name, name);
+                allGenreNames.add(translated);
+            }
+        }
+
+        for (String genreName : allGenreNames) {
+            Genre genre = genreRepository.findByName(genreName).orElseGet(() -> {
+                Genre newGenre = new Genre();
+                newGenre.setName(genreName);
+                return genreRepository.save(newGenre);
+            });
+            genreSet.add(genre);
+        }
+
+        return genreSet;
+    }
+
     private Anime parseAnime(JsonNode node) {
         try {
             Anime anime = new Anime();
@@ -236,7 +303,7 @@ public class AnimeSyncService {
 
             anime.setStudios(extractStudios(node));
 
-            anime.setGenres(translateGenres(node));
+            anime.setGenres(translateAndSaveGenres(node));
 
             anime.setSource(translateSource(getTextValue(node, "source")));
 
@@ -269,39 +336,6 @@ public class AnimeSyncService {
         return "";
     }
 
-    private String translateGenres(JsonNode node) {
-        JsonNode genres = node.get("genres");
-        List<String> translatedGenres = new ArrayList<>();
-
-        if (genres != null && genres.isArray()) {
-            for (JsonNode genre : genres) {
-                String name = genre.get("name").asText();
-                String translated = GENRE_TRANSLATIONS.getOrDefault(name, name);
-                translatedGenres.add(translated);
-            }
-        }
-
-        JsonNode themes = node.get("themes");
-        if (themes != null && themes.isArray()) {
-            for (JsonNode theme : themes) {
-                String name = theme.get("name").asText();
-                String translated = GENRE_TRANSLATIONS.getOrDefault(name, name);
-                translatedGenres.add(translated);
-            }
-        }
-
-        JsonNode demographics = node.get("demographics");
-        if (demographics != null && demographics.isArray()) {
-            for (JsonNode demo : demographics) {
-                String name = demo.get("name").asText();
-                String translated = GENRE_TRANSLATIONS.getOrDefault(name, name);
-                translatedGenres.add(translated);
-            }
-        }
-
-        return String.join(", ", translatedGenres);
-    }
-
     private String translateType(String type) {
         return TYPE_TRANSLATIONS.getOrDefault(type, type);
     }
@@ -318,21 +352,21 @@ public class AnimeSyncService {
         return SEASON_TRANSLATIONS.getOrDefault(season, season);
     }
 
+    private String translateRole(String role) {
+        return ROLE_TRANSLATIONS.getOrDefault(role, role);
+    }
+
     public String cleanAnimeData() {
         List<Anime> allAnime = animeRepository.findAll();
         int deletedCount = 0;
         int cleanedCount = 0;
 
-        List<String> forbiddenTags = Arrays.asList("百合", "色情", 
-        "女扮男装", "邪典", "恐怖", "成人角色");
-
         for (Anime anime : allAnime) {
-            String genres = anime.getGenres();
             boolean shouldDelete = false;
 
-            if (genres != null && !genres.isEmpty()) {
-                for (String tag : forbiddenTags) {
-                    if (genres.contains(tag)) {
+            if (anime.getGenres() != null) {
+                for (Genre genre : anime.getGenres()) {
+                    if (FORBIDDEN_TAGS.contains(genre.getName())) {
                         shouldDelete = true;
                         break;
                     }
@@ -343,32 +377,158 @@ public class AnimeSyncService {
                 animeRepository.delete(anime);
                 deletedCount++;
             } else {
-                String cleanedGenres = cleanGenres(genres);
-                if (!cleanedGenres.equals(genres)) {
-                    anime.setGenres(cleanedGenres);
-                    animeRepository.save(anime);
-                    cleanedCount++;
-                }
+                animeRepository.save(anime);
+                cleanedCount++;
             }
         }
 
-        return String.format("清理完成：删除 %d 条违规数据，清理 %d 条数据的英文标签", deletedCount, cleanedCount);
+        return String.format("清理完成：删除 %d 条违规数据，清理 %d 条数据", deletedCount, cleanedCount);
     }
 
-    private String cleanGenres(String genres) {
-        if (genres == null || genres.isEmpty()) {
-            return "";
+    @Transactional
+    public String syncAnimeCharacters(Long animeId) {
+        String url = String.format("https://api.jikan.moe/v4/anime/%d/characters", animeId);
+
+        try {
+            ResponseEntity<String> response = restTemplate.getForEntity(url, String.class);
+
+            if (response.getBody() == null) {
+                return "API返回为空";
+            }
+
+            JsonNode root = objectMapper.readTree(response.getBody());
+            JsonNode dataArray = root.get("data");
+
+            if (dataArray == null || dataArray.isEmpty()) {
+                return "未找到该动漫的角色数据";
+            }
+
+            animeCharacterRepository.deleteByAnimeId(animeId);
+
+            int addedCount = 0;
+            int limit = Math.min(dataArray.size(), 5);
+
+            for (int i = 0; i < limit; i++) {
+                JsonNode node = dataArray.get(i);
+
+                JsonNode characterInfo = node.get("character");
+                if (characterInfo == null) {
+                    continue;
+                }
+
+                JsonNode malIdNode = characterInfo.get("mal_id");
+                if (malIdNode == null || malIdNode.isNull()) {
+                    continue;
+                }
+                Long characterId = malIdNode.asLong();
+
+                Character character = characterRepository.findById(characterId).orElse(null);
+
+                if (character == null) {
+                    character = new Character();
+                    character.setId(characterId);
+                }
+
+                character.setName(getTextValue(characterInfo, "name"));
+                character.setNameJp(getTextValue(characterInfo, "name_japanese"));
+
+                JsonNode images = characterInfo.get("images");
+                if (images != null) {
+                    JsonNode jpg = images.get("jpg");
+                    if (jpg != null) {
+                        character.setImageUrl(getTextValue(jpg, "image_url"));
+                    }
+                }
+
+                JsonNode favoritesNode = node.get("favorites");
+                if (favoritesNode != null && !favoritesNode.isNull()) {
+                    character.setFavorites(favoritesNode.asInt());
+                }
+
+                characterRepository.save(character);
+
+                AnimeCharacter animeCharacter = new AnimeCharacter();
+                animeCharacter.setAnimeId(animeId);
+                animeCharacter.setCharacterId(characterId);
+
+                JsonNode roleNode = node.get("role");
+                if (roleNode != null && !roleNode.isNull()) {
+                    animeCharacter.setRole(translateRole(roleNode.asText()));
+                }
+
+                animeCharacterRepository.save(animeCharacter);
+
+                addedCount++;
+            }
+
+            return String.format("成功为动漫 %d 添加 %d 个角色", animeId, addedCount);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return "添加角色失败: " + e.getMessage();
         }
+    }
 
-        List<String> genreList = Arrays.asList(genres.split(", "));
-        List<String> cleanedList = new ArrayList<>();
+    @Transactional
+    public String syncAnimeGenres(Long animeId) {
+        String url = String.format("https://api.jikan.moe/v4/anime/%d", animeId);
 
-        for (String genre : genreList) {
-            if (GENRE_TRANSLATIONS.containsValue(genre)) {
-                cleanedList.add(genre);
+        try {
+            Thread.sleep(500);
+
+            ResponseEntity<String> response = restTemplate.getForEntity(url, String.class);
+
+            if (response.getBody() == null) {
+                return "API返回为空";
+            }
+
+            JsonNode root = objectMapper.readTree(response.getBody());
+            JsonNode data = root.get("data");
+
+            if (data == null) {
+                return "未找到该动漫数据";
+            }
+
+            Set<Genre> genreSet = translateAndSaveGenres(data);
+
+            animeGenreRepository.deleteByAnimeId(animeId);
+
+            for (Genre genre : genreSet) {
+                AnimeGenre animeGenre = new AnimeGenre();
+                animeGenre.setAnimeId(animeId);
+                animeGenre.setGenreId(genre.getId());
+                animeGenreRepository.save(animeGenre);
+            }
+
+            return String.format("成功为动漫 %d 同步 %d 个题材", animeId, genreSet.size());
+        } catch (Exception e) {
+            e.printStackTrace();
+            return "同步题材失败: " + e.getMessage();
+        }
+    }
+
+    @Transactional
+    public String syncAllAnimeGenres() {
+        List<Anime> allAnime = animeRepository.findAll();
+        int successCount = 0;
+        int failCount = 0;
+        int totalGenres = 0;
+
+        for (Anime anime : allAnime) {
+            String result = syncAnimeGenres(anime.getId());
+            if (result.contains("成功")) {
+                successCount++;
+                try {
+                    String[] parts = result.split(" ");
+                    if (parts.length >= 4) {
+                        totalGenres += Integer.parseInt(parts[3]);
+                    }
+                } catch (NumberFormatException e) {
+                }
+            } else {
+                failCount++;
             }
         }
 
-        return String.join(", ", cleanedList);
+        return String.format("题材同步完成：成功 %d 个，失败 %d 个，共 %d 个题材关联", successCount, failCount, totalGenres);
     }
 }
