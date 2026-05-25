@@ -4,16 +4,17 @@ import jakarta.persistence.*;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "watch_history", uniqueConstraints = {
-    @UniqueConstraint(columnNames = {"user_id", "anime_id"})
+@Table(name = "favorite_folders", uniqueConstraints = {
+    @UniqueConstraint(columnNames = {"user_id", "name"})
 })
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public class WatchHistory {
+public class FavoriteFolder {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -21,28 +22,26 @@ public class WatchHistory {
     @Column(name = "user_id", nullable = false)
     private Long userId;
 
-    @Column(name = "anime_id", nullable = false)
-    private Long animeId;
+    @Column(nullable = false)
+    private String name;
 
-    @Column(name = "episode_id")
-    private Long episodeId;
-
-    @Column(name = "episode_number")
-    private Integer episodeNumber;
-
-    private Integer progress = 0;
-
-    private Boolean completed = false;
+    @Column(name = "created_at")
+    private LocalDateTime createdAt;
 
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
+    @Column(name = "sort_order")
+    private Integer sortOrder = 0;
+
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "anime_id", insertable = false, updatable = false)
-    private Anime anime;
+    @JoinColumn(name = "user_id", insertable = false, updatable = false)
+    @JsonIgnore
+    private User user;
 
     @PrePersist
     protected void onCreate() {
+        createdAt = LocalDateTime.now();
         updatedAt = LocalDateTime.now();
     }
 

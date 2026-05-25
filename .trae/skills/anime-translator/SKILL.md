@@ -1,6 +1,6 @@
 ---
 name: "anime-translator"
-description: "读取数据库anime_db的anime实体，将指定属性翻译为中文后写入数据库。使用MySQL命令行直接操作，支持批量处理，自动调用baoyu-translate进行翻译。"
+description: "读取数据库anime_db的anime实体，将指定属性翻译为中文后写入数据库。使用MySQL命令行直接操作，支持批量处理，调用baoyu-translate技能进行翻译。"
 version: "2.1.0"
 author: "trae"
 created_at: "2026-05-19"
@@ -32,8 +32,8 @@ input:
   - name: "translate_mode"
     type: "string"
     required: false
-    default: "normal"
-    description: "翻译模式：quick(快速), normal(标准), refined(精细)，默认使用标准翻译"
+    default: "refined"
+    description: "翻译模式：quick(快速), normal(标准), refined(精细)，默认使用精细翻译"
 
 output:
   - name: "translated_ids"
@@ -82,7 +82,7 @@ features:
   - "创建临时目录存储中间文件"
   - "批量读取指定范围的anime实体"
   - "自动调用baoyu-translate技能进行英中翻译"
-  - "使用标准翻译模式（normal）"
+  - "使用精细翻译模式（refined）"
   - "支持文本分块处理（大内容自动拆分）"
   - "清理翻译结果中的乱码字符"
   - "移除翻译结果中的来源标记（如 [Written by MAL Rewrite]）"
@@ -103,7 +103,7 @@ features:
 2. **读取实体**: 使用MySQL命令读取指定ID或批量ID范围的anime实体
 3. **准备翻译内容**: 将原始数据写入 `anime_synopsis.md`
 4. **分块处理**: 调用 `baoyu-translate` 脚本进行内容分块（大内容自动拆分）
-5. **标准翻译处理**: 使用baoyu-translate的**标准翻译模式（normal）**进行翻译：
+5. **精细翻译处理**: 使用baoyu-translate的**精细翻译模式（refined）**进行翻译：
 6. **清理处理**: 清理翻译结果中的乱码字符和来源标记（如 [Written by MAL Rewrite]）
 7. **生成更新SQL**: 将翻译结果生成为UPDATE SQL语句
 8. **执行更新**: 使用mysql -u root -pCptbtptp123! -h localhost -P 3306 --default-character-set=utf8mb4 anime_db -e "source d:/temp/anime_translate/update.sql"执行更新

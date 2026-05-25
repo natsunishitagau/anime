@@ -531,4 +531,42 @@ public class AnimeSyncService {
 
         return String.format("题材同步完成：成功 %d 个，失败 %d 个，共 %d 个题材关联", successCount, failCount, totalGenres);
     }
+
+    public String syncAnimeById(Long animeId) {
+        String url = String.format("https://api.jikan.moe/v4/anime/%d", animeId);
+
+        try {
+            Thread.sleep(500);
+
+            ResponseEntity<String> response = restTemplate.getForEntity(url, String.class);
+
+            if (response.getBody() == null) {
+                return "API返回为空";
+            }
+
+            JsonNode root = objectMapper.readTree(response.getBody());
+            JsonNode data = root.get("data");
+
+            if (data == null || data.isNull()) {
+                return "未找到ID为 " + animeId + " 的动漫数据";
+            }
+
+            Anime anime = parseAnime(data);
+            if (anime != null) {
+                anime.setId(animeId);
+
+                Optional<Anime> existingAnime = animeRepository.findById(animeId);
+                if (existingAnime.isPresent() && existingAnime.get().getCreatedAt() != null) {
+                    anime.setCreatedAt(existingAnime.get().getCreatedAt());
+                }
+
+                animeRepository.save(anime);
+                return String.format("成功同步动漫：%s (ID: %d)", anime.getTitle(), animeId);
+            } else {
+                return "解析动漫数据失败";
+            }
+        } catch (Exception e) {
+            return "同步失败: " + e.getMessage();
+        }
+    }
 }

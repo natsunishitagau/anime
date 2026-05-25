@@ -12,8 +12,8 @@
           <ul class="link-grid">
             <li><router-link to="/">首页</router-link></li>
             <li><router-link to="/browse">浏览番剧</router-link></li>
-            <li><router-link to="/browse?type=TV">TV动画</router-link></li>
-            <li><router-link to="/browse?type=MOVIE">剧场版</router-link></li>
+            <li><router-link to="/browse?type=TV动画">TV动画</router-link></li>
+            <li><router-link to="/browse?type=剧场版">剧场版</router-link></li>
           </ul>
         </div>
         
@@ -34,11 +34,52 @@
       </div>
       
       <div class="footer-bottom">
-        <p>&copy; 2024 AnimeHub. All rights reserved.</p>
+        <p>&copy; 2026 AnimeHub.</p>
+        <div class="stats-container">
+          <span class="stat-item">
+            <span class="stat-label">今日 PV</span>
+            <span class="stat-value">{{ stats.pv || '--' }}</span>
+          </span>
+          <span class="stat-divider">|</span>
+          <span class="stat-item">
+            <span class="stat-label">今日 UV</span>
+            <span class="stat-value">{{ stats.uv || '--' }}</span>
+          </span>
+        </div>
+        <p class="copyright">All rights reserved.</p>
       </div>
     </div>
   </footer>
 </template>
+
+<script setup>
+import { ref, onMounted, onUnmounted } from 'vue'
+import { useRouter } from 'vue-router'
+import axios from '../utils/axios'
+
+const router = useRouter()
+const stats = ref({ pv: 0, uv: 0 })
+
+const fetchStats = async () => {
+  try {
+    const response = await axios.get('/stats/overview')
+    if (response.data.success) {
+      stats.value = response.data.data
+    }
+  } catch (error) {
+    console.error('Failed to fetch stats:', error)
+  }
+}
+
+onMounted(() => {
+  fetchStats()
+  router.afterEach(fetchStats)
+})
+
+onUnmounted(() => {
+  router.afterEach(() => {})
+})
+</script>
 
 <style scoped>
 .footer {
@@ -109,11 +150,41 @@
 .footer-bottom {
   padding-top: 1.5rem;
   border-top: 1px solid var(--border-color);
-  text-align: center;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
 .footer-bottom p {
   color: var(--text-muted);
   font-size: 0.875rem;
+}
+
+.stats-container {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.stat-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.stat-label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.stat-value {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--primary-color);
+}
+
+.stat-divider {
+  color: var(--border-color);
 }
 </style>

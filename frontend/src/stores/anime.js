@@ -140,9 +140,9 @@ export const useAnimeStore = defineStore('anime', {
       }
     },
 
-    async addReview(animeId, rating, comment) {
+    async addReview(animeId, comment) {
       try {
-        const response = await axios.post(`${API_URL}/${animeId}/review?rating=${rating}&comment=${encodeURIComponent(comment || '')}`)
+        const response = await axios.post(`${API_URL}/${animeId}/review?comment=${encodeURIComponent(comment || '')}`)
         return response.data.success
       } catch (error) {
         return false

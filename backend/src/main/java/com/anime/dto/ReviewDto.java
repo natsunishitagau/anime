@@ -11,8 +11,8 @@ public class ReviewDto {
     private Long id;
     private Long userId;
     private String username;
+    private String avatarUrl;
     private Long animeId;
-    private Integer rating;
     private String comment;
     private String createdAt;
 }

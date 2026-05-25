@@ -41,6 +41,12 @@ public interface AnimeRepository extends JpaRepository<Anime, Long> {
     @Query("SELECT DISTINCT a.year FROM Anime a WHERE a.year IS NOT NULL ORDER BY a.year DESC")
     List<Integer> findDistinctYears();
 
+    @Query("SELECT DISTINCT a.source FROM Anime a WHERE a.source IS NOT NULL AND a.source != '' ORDER BY a.source")
+    List<String> findDistinctSources();
+
     @Query("SELECT a FROM Anime a LEFT JOIN FETCH a.genres WHERE a.id = :id")
     java.util.Optional<Anime> findByIdWithGenres(@Param("id") Long id);
+
+    @Query("SELECT a.id FROM Anime a")
+    List<Long> findAllAnimeIds();
 }

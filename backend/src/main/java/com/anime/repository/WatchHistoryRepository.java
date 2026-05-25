@@ -15,4 +15,8 @@ public interface WatchHistoryRepository extends JpaRepository<WatchHistory, Long
     List<WatchHistory> findByUserIdOrderByUpdatedAtDesc(@Param("userId") Long userId);
     
     Optional<WatchHistory> findByUserIdAndAnimeId(Long userId, Long animeId);
+    
+    Optional<WatchHistory> findByUserIdAndAnimeIdAndEpisodeId(Long userId, Long animeId, Long episodeId);
+    
+    List<WatchHistory> findByUserIdAndAnimeIdOrderByEpisodeNumberAsc(Long userId, Long animeId);
 }

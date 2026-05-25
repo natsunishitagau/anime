@@ -49,6 +49,7 @@
 import { ref, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import { $message } from '../utils/message'
 
 const router = useRouter()
 const route = useRoute()
@@ -63,6 +64,7 @@ const error = computed(() => authStore.error)
 const handleLogin = async () => {
   const success = await authStore.login(username.value, password.value)
   if (success) {
+    $message.success('登录成功')
     const redirect = route.query.redirect || '/'
     router.push(redirect)
   }

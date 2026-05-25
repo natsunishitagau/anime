@@ -1,5 +1,6 @@
 package com.anime.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -29,6 +30,7 @@ public class Character {
     @Column(name = "favorites")
     private Integer favorites;
 
+    @JsonIgnore
     @ManyToMany(mappedBy = "characters")
     private Set<Anime> animes;
 }

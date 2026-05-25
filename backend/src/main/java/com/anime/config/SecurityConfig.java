@@ -38,7 +38,9 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/auth/**").permitAll()
                 .requestMatchers("/api/anime/**").permitAll()
-                .requestMatchers("/api/health").permitAll()
+                .requestMatchers("/api/videos/**").permitAll()
+                .requestMatchers("/api/watch-history/**").permitAll()
+                .requestMatchers("/api/stats/**").permitAll()
                 .requestMatchers("/api/admin/**").hasRole("ADMIN")
                 .requestMatchers("/uploads/**").permitAll()
                 .anyRequest().authenticated()

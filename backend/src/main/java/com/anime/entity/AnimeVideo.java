@@ -7,29 +7,35 @@ import lombok.AllArgsConstructor;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "reviews")
+@Table(name = "anime_video")
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public class Review {
+public class AnimeVideo {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "user_id", nullable = false)
-    private Long userId;
-
     @Column(name = "anime_id", nullable = false)
     private Long animeId;
 
-    @Column(columnDefinition = "TEXT")
-    private String comment;
+    @Column(nullable = false)
+    private String title;
+
+    @Column(name = "episode_number")
+    private Integer episodeNumber;
+
+    @Column(name = "duration")
+    private Integer duration;
+
+    @Column(name = "video_path", nullable = false)
+    private String videoPath;
+
+    @Column(name = "thumbnail_path")
+    private String thumbnailPath;
 
     @Column(name = "created_at")
     private LocalDateTime createdAt;
-
-    @Column(name = "username")
-    private String username;
 
     @PrePersist
     protected void onCreate() {

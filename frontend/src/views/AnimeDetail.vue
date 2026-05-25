@@ -32,7 +32,7 @@
               </div>
 
               <div class="actions">
-                <button @click="toggleFavorite" :class="['btn', anime.isFavorited ? 'btn-primary' : 'btn-secondary']">
+                <button @click="openFolderDialog" :class="['btn', anime.isFavorited ? 'btn-primary' : 'btn-secondary']">
                   {{ anime.isFavorited ? '❤️ 已收藏' : '🤍 收藏' }}
                 </button>
                 <div class="rating-section">
@@ -44,6 +44,18 @@
                 </div>
               </div>
             </div>
+          </div>
+
+          <h2 class="section-title">剧集列表</h2>
+          <div class="episodes-bar" v-if="videos && videos.length > 0">
+            <router-link
+              v-for="video in videos"
+              :key="video.id"
+              :to="`/watch/${video.id}`"
+              class="episode-badge"
+            >
+              {{ video.episodeNumber }}
+            </router-link>
           </div>
         </div>
       </div>
@@ -72,15 +84,9 @@
           </section>
 
           <section class="section">
-            <h2>用户评论</h2>
+            <h2>用户评论 <span v-if="anime.reviews?.length > 0">({{ anime.reviews.length }})</span></h2>
             <div class="review-form" v-if="isAuthenticated">
               <h3>发表评论</h3>
-              <div class="rating-input">
-                <span>评分:</span>
-                <select v-model="reviewRating" class="input">
-                  <option v-for="n in 10" :key="n" :value="n">{{ n }}分</option>
-                </select>
-              </div>
               <textarea v-model="reviewComment" class="input review-textarea" placeholder="写下你的评论..."></textarea>
               <button @click="submitReview" class="btn btn-primary">发布评论</button>
             </div>
@@ -90,12 +96,16 @@
 
             <div class="reviews-list">
               <div class="review-card" v-for="review in anime.reviews" :key="review.id">
-                <div class="review-header">
-                  <span class="reviewer-name">{{ review.user?.username || '匿名用户' }}</span>
-                  <span class="review-rating">⭐ {{ review.rating }}</span>
+                <div class="review-avatar">
+                  <img :src="getAvatar(review.avatarUrl, review.username)" :alt="review.username || '匿名用户'" class="avatar-img" />
                 </div>
-                <p class="review-comment">{{ review.comment || '' }}</p>
-                <span class="review-date">{{ formatDate(review.createdAt) }}</span>
+                <div class="review-content">
+                  <div class="review-header">
+                    <span class="reviewer-name">{{ review.username || '匿名用户' }}</span>
+                  </div>
+                  <p class="review-comment">{{ review.comment || '' }}</p>
+                  <span class="review-date">{{ formatDate(review.createdAt) }}</span>
+                </div>
               </div>
             </div>
           </section>
@@ -147,13 +157,49 @@
     <p>番剧不存在</p>
     <router-link to="/" class="btn btn-primary">返回首页</router-link>
   </div>
+
+  <div v-if="showFolderDialog" class="dialog-overlay" @click="showFolderDialog = false">
+    <div class="dialog" @click.stop>
+      <h2>选择收藏夹</h2>
+      <div v-if="folders.length === 0" class="empty-folders">
+        <p>还没有收藏夹，创建一个吧！</p>
+        <div class="new-folder-input">
+          <input v-model="newFolderName" placeholder="输入收藏夹名称" @keyup.enter="createAndAdd" />
+          <button @click="createAndAdd" class="btn btn-primary">创建并添加</button>
+        </div>
+      </div>
+      <div v-else class="folder-list">
+        <div
+          v-for="folder in folders"
+          :key="folder.id"
+          class="folder-item"
+          @click="addToFolder(folder.id)"
+        >
+          <span class="folder-name">{{ folder.name }}</span>
+          <span class="folder-count">{{ folder.count }} 部</span>
+        </div>
+        <div class="new-folder-section">
+          <div class="new-folder-input">
+            <input v-model="newFolderName" placeholder="创建新收藏夹..." />
+            <button @click="createAndAdd" class="btn btn-primary" :disabled="!newFolderName.trim()">创建</button>
+          </div>
+        </div>
+      </div>
+      <div v-if="dialogError" class="error-message">{{ dialogError }}</div>
+      <div class="dialog-actions">
+        <button @click="showFolderDialog = false" class="btn btn-secondary">取消</button>
+      </div>
+    </div>
+  </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAnimeStore } from '../stores/anime'
 import { useAuthStore } from '../stores/auth'
+import axios from '../utils/axios'
+import { $message } from '../utils/message'
 
 const route = useRoute()
 const animeStore = useAnimeStore()
@@ -162,8 +208,12 @@ const authStore = useAuthStore()
 const anime = ref(null)
 const loading = ref(true)
 const userRating = ref(0)
-const reviewRating = ref(5)
 const reviewComment = ref('')
+const showFolderDialog = ref(false)
+const folders = ref([])
+const newFolderName = ref('')
+const dialogError = ref('')
+const videos = ref([])
 
 const isAuthenticated = computed(() => authStore.isAuthenticated)
 
@@ -174,29 +224,87 @@ const fetchAnimeDetail = async () => {
     if (anime.value && anime.value.userRating) {
       userRating.value = anime.value.userRating
     }
+    await fetchVideos()
   } finally {
     loading.value = false
   }
 }
 
-const toggleFavorite = async () => {
+const fetchVideos = async () => {
+  try {
+    const response = await axios.get(`/videos/anime/${route.params.id}`)
+    if (response.data && response.data.data) {
+      videos.value = response.data.data
+    }
+  } catch (err) {
+    console.error('Failed to fetch videos:', err)
+    videos.value = []
+  }
+}
+
+const fetchFolders = async () => {
+  try {
+    const response = await axios.get('/user/favorites/folders')
+    if (response.data && response.data.data) {
+      folders.value = response.data.data
+    }
+  } catch (err) {
+    console.error('Failed to fetch folders:', err)
+  }
+}
+
+const openFolderDialog = async () => {
   if (!isAuthenticated.value) {
     return
   }
-  await animeStore.toggleFavorite(route.params.id)
-  anime.value.isFavorited = !anime.value.isFavorited
+  dialogError.value = ''
+  newFolderName.value = ''
+  await fetchFolders()
+  showFolderDialog.value = true
+}
+
+const addToFolder = async (folderId) => {
+  try {
+    await axios.post(`/user/favorites/folders/${folderId}/anime/${route.params.id}`)
+    showFolderDialog.value = false
+    if (anime.value) {
+      anime.value.isFavorited = true
+    }
+    $message.success('已添加到收藏夹')
+  } catch (err) {
+    dialogError.value = err.response?.data?.message || '添加失败'
+  }
+}
+
+const createAndAdd = async () => {
+  if (!newFolderName.value || !newFolderName.value.trim()) return
+
+  dialogError.value = ''
+  try {
+    const response = await axios.post('/user/favorites/folders', { name: newFolderName.value.trim() })
+    const newFolderId = response.data.data.id
+    await addToFolder(newFolderId)
+  } catch (err) {
+    dialogError.value = err.response?.data?.message || '创建失败'
+  }
 }
 
 const submitRating = async () => {
   if (!isAuthenticated.value || userRating.value === 0) return
-  await animeStore.rateAnime(route.params.id, userRating.value)
+  const success = await animeStore.rateAnime(route.params.id, userRating.value)
+  if (success) {
+    $message.success('评分成功')
+  }
 }
 
 const submitReview = async () => {
   if (!isAuthenticated.value) return
-  await animeStore.addReview(route.params.id, reviewRating.value, reviewComment.value)
-  reviewComment.value = ''
-  fetchAnimeDetail()
+  const success = await animeStore.addReview(route.params.id, reviewComment.value)
+  if (success) {
+    $message.success('评论发布成功')
+    reviewComment.value = ''
+    fetchAnimeDetail()
+  }
 }
 
 const formatDate = (dateString) => {
@@ -204,15 +312,38 @@ const formatDate = (dateString) => {
   return new Date(dateString).toLocaleDateString('zh-CN')
 }
 
+const getAvatar = (avatarUrl, username) => {
+  if (avatarUrl) return avatarUrl
+  return '/src/assets/avatars/default.svg'
+}
+
+const formatDuration = (seconds) => {
+  if (!seconds || isNaN(seconds)) return ''
+  const mins = Math.floor(seconds / 60)
+  const secs = Math.floor(seconds % 60)
+  return `${mins}:${secs.toString().padStart(2, '0')}`
+}
+
 onMounted(() => {
   fetchAnimeDetail()
+})
+
+watch(() => route.params.id, (newId, oldId) => {
+  if (newId && newId !== oldId) {
+    fetchAnimeDetail()
+  }
+})
+
+onUnmounted(() => {
+  anime.value = null
+  loading.value = true
 })
 </script>
 
 <style scoped>
 .hero-banner {
   position: relative;
-  padding: 4rem 0;
+  padding-top: 4rem;
   background: linear-gradient(180deg, var(--background-light) 0%, var(--background-dark) 100%);
 }
 
@@ -283,6 +414,7 @@ onMounted(() => {
 .score-display {
   display: flex;
   align-items: center;
+  justify-content: flex-start;
   gap: 0.5rem;
   margin-bottom: 1rem;
 }
@@ -330,6 +462,45 @@ onMounted(() => {
   border: 1px solid var(--border-color);
   border-radius: 0.5rem;
   color: var(--text-primary);
+}
+
+.section-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin-top: 1rem;
+  padding-bottom: 0.5rem;
+}
+
+.episodes-bar {
+  display: flex;
+  justify-content: start;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border-color);
+}
+
+.episode-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 50px;
+  height: 40px;
+  padding: 0 0.75rem;
+  background: var(--background-light);
+  border: 1px solid var(--border-color);
+  border-radius: 0.5rem;
+  color: var(--text-primary);
+  text-decoration: none;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.episode-badge:hover {
+  background: var(--primary-color);
+  border-color: var(--primary-color);
+  color: white;
+  transform: translateY(-2px);
 }
 
 .content-grid {
@@ -441,9 +612,27 @@ onMounted(() => {
 }
 
 .review-card {
+  display: flex;
+  gap: 1rem;
   padding: 1rem;
   background: var(--background-light);
   border-radius: 0.75rem;
+}
+
+.review-avatar {
+  flex-shrink: 0;
+}
+
+.avatar-img {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.review-content {
+  flex: 1;
+  min-width: 0;
 }
 
 .review-header {
@@ -545,6 +734,10 @@ onMounted(() => {
     grid-template-columns: 1fr;
   }
 
+  .score-display {
+    justify-content: center;
+  }
+
   .sidebar {
     position: static;
   }
@@ -571,5 +764,180 @@ onMounted(() => {
     justify-content: center;
     flex-wrap: wrap;
   }
+
+  .episodes-bar {
+    justify-content: left;
+  }
+}
+
+.dialog-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.dialog {
+  background: linear-gradient(145deg, #1e293b 0%, #0f172a 100%);
+  padding: 2rem;
+  border-radius: 16px;
+  width: 100%;
+  max-width: 450px;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow:
+    0 0 0 1px rgba(99, 102, 241, 0.3),
+    0 20px 60px rgba(0, 0, 0, 0.5),
+    0 0 40px rgba(99, 102, 241, 0.1);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+}
+
+.dialog h2 {
+  margin: 0 0 1.5rem 0;
+  color: #f1f5f9;
+  font-size: 1.35rem;
+  font-weight: 600;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+.empty-folders {
+  text-align: center;
+  padding: 1.5rem 0;
+}
+
+.empty-folders p {
+  color: #94a3b8;
+  margin-bottom: 1rem;
+}
+
+.folder-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.folder-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.25rem;
+  background: rgba(30, 41, 59, 0.8);
+  border: 1px solid rgba(71, 85, 105, 0.5);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.folder-item:hover {
+  background: rgba(99, 102, 241, 0.15);
+  border-color: rgba(99, 102, 241, 0.4);
+  transform: translateX(4px);
+}
+
+.folder-name {
+  color: #e2e8f0;
+  font-weight: 500;
+}
+
+.folder-count {
+  color: #64748b;
+  font-size: 0.875rem;
+  background: rgba(51, 65, 85, 0.6);
+  padding: 2px 10px;
+  border-radius: 12px;
+}
+
+.new-folder-section {
+  border-top: 1px solid rgba(71, 85, 105, 0.5);
+  padding-top: 1.25rem;
+  margin-top: 0.75rem;
+}
+
+.new-folder-input {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.new-folder-input input {
+  flex: 1;
+  padding: 0.75rem 1rem;
+  border: 1px solid rgba(71, 85, 105, 0.6);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.8);
+  color: #e2e8f0;
+  font-size: 0.9rem;
+}
+
+.new-folder-input input::placeholder {
+  color: #64748b;
+}
+
+.new-folder-input input:focus {
+  outline: none;
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
+}
+
+.error-message {
+  color: #f87171;
+  font-size: 0.875rem;
+  margin-top: 1rem;
+  text-align: center;
+  background: rgba(239, 68, 68, 0.1);
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 1.25rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid rgba(71, 85, 105, 0.5);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  font-weight: 500;
+  font-size: 0.875rem;
+  transition: background 0.2s;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--primary-color);
+  color: #fff;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--primary-hover);
+}
+
+.btn-secondary {
+  background: var(--border-color);
+  color: var(--text-primary);
+}
+
+.btn-secondary:hover {
+  background: var(--background-light);
 }
 </style>

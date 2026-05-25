@@ -3,12 +3,16 @@ package com.anime.controller;
 import com.anime.dto.ApiResponse;
 import com.anime.dto.AnimeDto;
 import com.anime.dto.DtoMapper;
+import com.anime.dto.FolderReorderRequest;
 import com.anime.dto.UserPrincipal;
 import com.anime.entity.Anime;
 import com.anime.entity.Favorite;
+import com.anime.entity.FavoriteFolder;
 import com.anime.entity.User;
 import com.anime.entity.WatchHistory;
 import com.anime.repository.AnimeRepository;
+import com.anime.repository.AnimeVideoRepository;
+import com.anime.repository.FavoriteFolderRepository;
 import com.anime.repository.FavoriteRepository;
 import com.anime.repository.UserRepository;
 import com.anime.repository.WatchHistoryRepository;
@@ -37,16 +41,170 @@ public class UserController {
     private final UserControllerHelper helper;
     private final UserRepository userRepository;
     private final DtoMapper dtoMapper;
+    private final FavoriteFolderRepository favoriteFolderRepository;
 
     public UserController(FavoriteRepository favoriteRepository, 
                           WatchHistoryRepository watchHistoryRepository,
                           AnimeRepository animeRepository,
+                          AnimeVideoRepository animeVideoRepository,
                           RecommendationService recommendationService,
                           UserRepository userRepository,
-                          DtoMapper dtoMapper) {
-        this.helper = new UserControllerHelper(favoriteRepository, watchHistoryRepository, animeRepository, recommendationService, dtoMapper);
+                          DtoMapper dtoMapper,
+                          FavoriteFolderRepository favoriteFolderRepository) {
+        this.helper = new UserControllerHelper(favoriteRepository, watchHistoryRepository, animeRepository, animeVideoRepository, recommendationService, dtoMapper, favoriteFolderRepository);
         this.userRepository = userRepository;
         this.dtoMapper = dtoMapper;
+        this.favoriteFolderRepository = favoriteFolderRepository;
+    }
+
+    @GetMapping("/favorites/folders")
+    public ResponseEntity<ApiResponse<List<Map<String, Object>>>> getFavoriteFolders(Authentication authentication) {
+        if (authentication == null) {
+            return ResponseEntity.status(401).body(ApiResponse.error("Authentication required"));
+        }
+        UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
+        List<Map<String, Object>> folders = helper.getFavoriteFolders(userPrincipal.getId());
+        return ResponseEntity.ok(ApiResponse.success(folders));
+    }
+
+    @PostMapping("/favorites/folders")
+    public ResponseEntity<ApiResponse<FavoriteFolder>> createFavoriteFolder(
+            @RequestBody Map<String, String> body,
+            Authentication authentication) {
+        if (authentication == null) {
+            return ResponseEntity.status(401).body(ApiResponse.error("Authentication required"));
+        }
+        String name = body.get("name");
+        if (name == null || name.trim().isEmpty()) {
+            return ResponseEntity.badRequest().body(ApiResponse.error("Folder name is required"));
+        }
+        UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
+        if (favoriteFolderRepository.existsByUserIdAndName(userPrincipal.getId(), name.trim())) {
+            return ResponseEntity.badRequest().body(ApiResponse.error("Folder name already exists"));
+        }
+        List<FavoriteFolder> existingFolders = favoriteFolderRepository.findByUserIdOrderBySortOrderAsc(userPrincipal.getId());
+        for (FavoriteFolder f : existingFolders) {
+            f.setSortOrder(f.getSortOrder() + 1);
+            favoriteFolderRepository.save(f);
+        }
+        FavoriteFolder folder = new FavoriteFolder();
+        folder.setUserId(userPrincipal.getId());
+        folder.setName(name.trim());
+        folder.setSortOrder(0);
+        FavoriteFolder savedFolder = favoriteFolderRepository.save(folder);
+        return ResponseEntity.ok(ApiResponse.success("Folder created", savedFolder));
+    }
+
+    @PutMapping("/favorites/folders/{folderId}")
+    public ResponseEntity<ApiResponse<FavoriteFolder>> updateFavoriteFolder(
+            @PathVariable Long folderId,
+            @RequestBody Map<String, String> body,
+            Authentication authentication) {
+        if (authentication == null) {
+            return ResponseEntity.status(401).body(ApiResponse.error("Authentication required"));
+        }
+        String name = body.get("name");
+        if (name == null || name.trim().isEmpty()) {
+            return ResponseEntity.badRequest().body(ApiResponse.error("Folder name is required"));
+        }
+        UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
+        Optional<FavoriteFolder> folderOpt = favoriteFolderRepository.findById(folderId);
+        if (folderOpt.isEmpty() || !folderOpt.get().getUserId().equals(userPrincipal.getId())) {
+            return ResponseEntity.status(404).body(ApiResponse.error("Folder not found"));
+        }
+        String trimmedName = name.trim();
+        if (favoriteFolderRepository.existsByUserIdAndName(userPrincipal.getId(), trimmedName)) {
+            return ResponseEntity.badRequest().body(ApiResponse.error("Folder name already exists"));
+        }
+        FavoriteFolder folder = folderOpt.get();
+        folder.setName(trimmedName);
+        FavoriteFolder updatedFolder = favoriteFolderRepository.save(folder);
+        return ResponseEntity.ok(ApiResponse.success("Folder renamed", updatedFolder));
+    }
+
+    @DeleteMapping("/favorites/folders/{folderId}")
+    public ResponseEntity<ApiResponse<Void>> deleteFavoriteFolder(
+            @PathVariable Long folderId,
+            Authentication authentication) {
+        if (authentication == null) {
+            return ResponseEntity.status(401).body(ApiResponse.error("Authentication required"));
+        }
+        UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
+        Optional<FavoriteFolder> folderOpt = favoriteFolderRepository.findById(folderId);
+        if (folderOpt.isEmpty() || !folderOpt.get().getUserId().equals(userPrincipal.getId())) {
+            return ResponseEntity.status(404).body(ApiResponse.error("Folder not found"));
+        }
+        helper.deleteFolderAndFavorites(userPrincipal.getId(), folderId);
+        favoriteFolderRepository.deleteById(folderId);
+        return ResponseEntity.ok(ApiResponse.success("Folder deleted", null));
+    }
+
+    @PutMapping("/favorites/folders/reorder")
+    public ResponseEntity<ApiResponse<Void>> reorderFavoriteFolders(
+            @RequestBody FolderReorderRequest request,
+            Authentication authentication) {
+        if (authentication == null) {
+            return ResponseEntity.status(401).body(ApiResponse.error("Authentication required"));
+        }
+        UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
+        List<Long> folderOrder = request.getFolderOrder();
+        if (folderOrder == null || folderOrder.isEmpty()) {
+            return ResponseEntity.badRequest().body(ApiResponse.error("Folder order is required"));
+        }
+        for (int i = 0; i < folderOrder.size(); i++) {
+            Long folderId = folderOrder.get(i);
+            Optional<FavoriteFolder> folderOpt = favoriteFolderRepository.findById(folderId);
+            if (folderOpt.isPresent() && folderOpt.get().getUserId().equals(userPrincipal.getId())) {
+                folderOpt.get().setSortOrder(i);
+                favoriteFolderRepository.save(folderOpt.get());
+            }
+        }
+        return ResponseEntity.ok(ApiResponse.success("Folders reordered", null));
+    }
+
+    @GetMapping("/favorites/folders/{folderId}")
+    public ResponseEntity<ApiResponse<List<AnimeDto>>> getFavoritesByFolder(
+            @PathVariable Long folderId,
+            Authentication authentication) {
+        if (authentication == null) {
+            return ResponseEntity.status(401).body(ApiResponse.error("Authentication required"));
+        }
+        UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
+        Optional<FavoriteFolder> folderOpt = favoriteFolderRepository.findById(folderId);
+        if (folderOpt.isEmpty() || !folderOpt.get().getUserId().equals(userPrincipal.getId())) {
+            return ResponseEntity.status(404).body(ApiResponse.error("Folder not found"));
+        }
+        return ResponseEntity.ok(ApiResponse.success(dtoMapper.toAnimeDtoList(helper.getFavoritesByFolder(userPrincipal.getId(), folderId))));
+    }
+
+    @PostMapping("/favorites/folders/{folderId}/anime/{animeId}")
+    public ResponseEntity<ApiResponse<Void>> addFavoriteToFolder(
+            @PathVariable Long folderId,
+            @PathVariable Long animeId,
+            Authentication authentication) {
+        if (authentication == null) {
+            return ResponseEntity.status(401).body(ApiResponse.error("Authentication required"));
+        }
+        UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
+        Optional<FavoriteFolder> folderOpt = favoriteFolderRepository.findById(folderId);
+        if (folderOpt.isEmpty() || !folderOpt.get().getUserId().equals(userPrincipal.getId())) {
+            return ResponseEntity.status(404).body(ApiResponse.error("Folder not found"));
+        }
+        helper.addFavoriteToFolder(userPrincipal.getId(), animeId, folderId);
+        return ResponseEntity.ok(ApiResponse.success("Added to folder", null));
+    }
+
+    @DeleteMapping("/favorites/folders/{folderId}/anime/{animeId}")
+    public ResponseEntity<ApiResponse<Void>> removeFavoriteFromFolder(
+            @PathVariable Long folderId,
+            @PathVariable Long animeId,
+            Authentication authentication) {
+        if (authentication == null) {
+            return ResponseEntity.status(401).body(ApiResponse.error("Authentication required"));
+        }
+        UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
+        helper.removeFavoriteFromFolder(userPrincipal.getId(), animeId, folderId);
+        return ResponseEntity.ok(ApiResponse.success("Removed from folder", null));
     }
 
     @GetMapping("/favorites")
@@ -190,19 +348,72 @@ public class UserController {
         private final FavoriteRepository favoriteRepository;
         private final WatchHistoryRepository watchHistoryRepository;
         private final AnimeRepository animeRepository;
+        private final AnimeVideoRepository animeVideoRepository;
         private final RecommendationService recommendationService;
         private final DtoMapper dtoMapper;
+        private final FavoriteFolderRepository favoriteFolderRepository;
 
         UserControllerHelper(FavoriteRepository favoriteRepository,
                             WatchHistoryRepository watchHistoryRepository,
                             AnimeRepository animeRepository,
+                            AnimeVideoRepository animeVideoRepository,
                             RecommendationService recommendationService,
-                            DtoMapper dtoMapper) {
+                            DtoMapper dtoMapper,
+                            FavoriteFolderRepository favoriteFolderRepository) {
             this.favoriteRepository = favoriteRepository;
             this.watchHistoryRepository = watchHistoryRepository;
             this.animeRepository = animeRepository;
+            this.animeVideoRepository = animeVideoRepository;
             this.recommendationService = recommendationService;
             this.dtoMapper = dtoMapper;
+            this.favoriteFolderRepository = favoriteFolderRepository;
+        }
+
+        List<Map<String, Object>> getFavoriteFolders(Long userId) {
+            List<FavoriteFolder> folders = favoriteFolderRepository.findByUserIdOrderBySortOrderAsc(userId);
+            return folders.stream()
+                    .map(folder -> {
+                        Map<String, Object> map = new HashMap<>();
+                        map.put("id", folder.getId());
+                        map.put("name", folder.getName());
+                        map.put("createdAt", folder.getCreatedAt());
+                        List<Anime> animes = getFavoritesByFolder(userId, folder.getId());
+                        map.put("count", animes.size());
+                        if (!animes.isEmpty()) {
+                            map.put("latestAnimeImage", animes.get(0).getImageUrl());
+                        }
+                        return map;
+                    })
+                    .collect(Collectors.toList());
+        }
+
+        List<Anime> getFavoritesByFolder(Long userId, Long folderId) {
+            List<Favorite> favorites = favoriteRepository.findByUserIdAndFolderIdOrderByCreatedAtDesc(userId, folderId);
+            return favorites.stream()
+                    .map(f -> animeRepository.findById(f.getAnimeId()).orElse(null))
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toList());
+        }
+
+        void addFavoriteToFolder(Long userId, Long animeId, Long folderId) {
+            if (favoriteRepository.existsByUserIdAndAnimeIdAndFolderId(userId, animeId, folderId)) {
+                return;
+            }
+            Favorite favorite = new Favorite();
+            favorite.setUserId(userId);
+            favorite.setAnimeId(animeId);
+            favorite.setFolderId(folderId);
+            favoriteRepository.save(favorite);
+        }
+
+        void removeFavoriteFromFolder(Long userId, Long animeId, Long folderId) {
+            favoriteRepository.findByUserIdAndAnimeIdAndFolderId(userId, animeId, folderId)
+                    .ifPresent(favoriteRepository::delete);
+        }
+
+        void deleteFolderAndFavorites(Long userId, Long folderId) {
+            List<Favorite> favorites = favoriteRepository.findByUserIdAndFolderIdOrderByCreatedAtDesc(userId, folderId);
+            favoriteRepository.deleteAll(favorites);
         }
 
         List<Anime> getFavorites(Long userId) {
@@ -228,6 +439,20 @@ public class UserController {
                             map.put("progress", h.getProgress());
                             map.put("completed", h.getCompleted());
                             map.put("updatedAt", h.getUpdatedAt());
+                            map.put("episodeNumber", h.getEpisodeNumber());
+
+                            int duration = 0;
+                            if (h.getEpisodeId() != null) {
+                                duration = animeVideoRepository.findById(h.getEpisodeId())
+                                        .map(v -> v.getDuration() != null ? v.getDuration() : 0)
+                                        .orElse(0);
+                            }
+                            int progressPercent = 0;
+                            if (h.getProgress() != null && duration > 0) {
+                                progressPercent = Math.min(h.getProgress() * 100 / duration, 100);
+                            }
+                            map.put("duration", duration);
+                            map.put("progressPercent", progressPercent);
                         });
                         return map;
                     })

@@ -11,12 +11,12 @@ instance.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`
     }
-    console.log('📡 请求信息:', {
-      fullUrl: `${config.baseURL}${config.url}`,
-      params: config.params,
-      data: config.data,
-      headers: config.headers
-    })
+    // console.log('📡 请求信息:', {
+    //   fullUrl: `${config.baseURL}${config.url}`,
+    //   params: config.params,
+    //   data: config.data,
+    //   headers: config.headers
+    // })
     return config
   },
   (error) => {
@@ -27,11 +27,11 @@ instance.interceptors.request.use(
 
 instance.interceptors.response.use(
   (response) => {
-    console.log('✅ 响应信息:', {
-      status: response.status,
-      statusText: response.statusText,
-      data: response.data,
-    })
+    // console.log('✅ 响应信息:', {
+    //   status: response.status,
+    //   statusText: response.statusText,
+    //   data: response.data,
+    // })
     return response
   },
   (error) => {

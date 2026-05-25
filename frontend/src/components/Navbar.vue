@@ -134,7 +134,7 @@ const handleLogout = () => {
 
 .search-box {
   flex: 1;
-  max-width: 400px;
+  max-width: 230px;
   display: flex;
   gap: 0.5rem;
 }

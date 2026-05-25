@@ -85,14 +85,14 @@ public class DtoMapper {
                 .collect(Collectors.toList());
     }
 
-    public ReviewDto toReviewDto(Review review) {
+    public ReviewDto toReviewDto(Review review, String avatarUrl) {
         if (review == null) return null;
         return new ReviewDto(
                 review.getId(),
                 review.getUserId(),
                 review.getUsername(),
+                avatarUrl,
                 review.getAnimeId(),
-                review.getRating(),
                 review.getComment(),
                 review.getCreatedAt() != null ? review.getCreatedAt().toString() : null
         );
@@ -101,7 +101,7 @@ public class DtoMapper {
     public List<ReviewDto> toReviewDtoList(List<Review> reviews) {
         if (reviews == null) return List.of();
         return reviews.stream()
-                .map(this::toReviewDto)
+                .map(review -> toReviewDto(review, null))
                 .collect(Collectors.toList());
     }
 }

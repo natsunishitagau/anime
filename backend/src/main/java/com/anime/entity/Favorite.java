@@ -8,7 +8,7 @@ import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "favorites", uniqueConstraints = {
-    @UniqueConstraint(columnNames = {"user_id", "anime_id"})
+    @UniqueConstraint(name = "UK_user_anime_folder", columnNames = {"user_id", "anime_id", "folder_id"})
 })
 @Data
 @NoArgsConstructor
@@ -24,6 +24,9 @@ public class Favorite {
     @Column(name = "anime_id", nullable = false)
     private Long animeId;
 
+    @Column(name = "folder_id")
+    private Long folderId;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 
@@ -34,6 +37,10 @@ public class Favorite {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "anime_id", insertable = false, updatable = false)
     private Anime anime;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "folder_id", insertable = false, updatable = false)
+    private FavoriteFolder folder;
 
     @PrePersist
     protected void onCreate() {

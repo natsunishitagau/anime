@@ -52,4 +52,10 @@ public class AnimeSyncController {
         String result = animeSyncService.syncAllAnimeGenres();
         return ResponseEntity.ok(result);
     }
+
+    @PostMapping("/sync/anime/id/{animeId}")
+    public ResponseEntity<String> syncAnimeById(@PathVariable Long animeId) {
+        String result = animeSyncService.syncAnimeById(animeId);
+        return ResponseEntity.ok(result);
+    }
 }

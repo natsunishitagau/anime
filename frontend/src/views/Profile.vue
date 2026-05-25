@@ -35,13 +35,29 @@
 
       <div class="profile-content">
         <section class="section">
-          <h2>我的收藏</h2>
-          <div v-if="favorites.length > 0" class="favorites-grid">
-            <AnimeCard v-for="anime in favorites" :key="anime.id" :anime="anime" :card-width="160" :card-height="260" />
+          <div class="section-header">
+            <div>我的收藏夹</div>
+            <router-link to="/favorites" class="see-more">管理收藏 →</router-link>
+          </div>
+          <div v-if="folders.length > 0" class="folders-grid">
+            <div
+              v-for="folder in folders"
+              :key="folder.id"
+              class="folder-card"
+              @click="goToFolder(folder.id)"
+            >
+              <div class="folder-image">
+                <img :src="folder.latestAnimeImage || defaultImage" :alt="folder.name" />
+              </div>
+              <div class="folder-info">
+                <h3>{{ folder.name }}</h3>
+                <p>{{ folder.count }} 部番剧</p>
+              </div>
+            </div>
           </div>
           <div v-else class="empty-state">
-            <p>还没有收藏任何番剧</p>
-            <router-link to="/browse" class="btn btn-primary">去浏览</router-link>
+            <p>还没有创建收藏夹</p>
+            <router-link to="/favorites" class="btn btn-primary">去创建</router-link>
           </div>
         </section>
 
@@ -52,9 +68,19 @@
               <router-link :to="`/anime/${item.anime.id}`" class="history-anime">
                 <img :src="item.anime.imageUrl || 'https://via.placeholder.com/80x120/1e293b/475569?text=?'" :alt="item.anime.title" />
                 <div class="history-info">
-                  <h4>{{ item.anime.title }}</h4>
-                  <p>观看进度: {{ item.progress }}%</p>
-                  <span v-if="item.completed" class="badge badge-success">已完成</span>
+                  <div class="history-header">
+                    <h4>{{ item.anime.title }}</h4>
+                    <span class="history-time">{{ formatRelativeTime(item.updatedAt) }}</span>
+                  </div>
+                  <p v-if="item.episodeNumber">第{{ item.episodeNumber }}话</p>
+                  <div class="progress-bar-wrapper">
+                    <div class="progress-bar">
+                      <div class="progress-fill" :style="{ width: (item.progressPercent || 0) + '%' }"></div>
+                    </div>
+                    <span class="progress-text">{{ item.progressPercent || 0 }}%</span>
+                    <span v-if="item.completed" class="badge badge-success">已完成</span>
+                  </div>
+                  <p class="time-display">{{ formatTime(item.progress) }} / {{ formatTime(item.duration) }}</p>
                 </div>
               </router-link>
             </div>
@@ -73,13 +99,15 @@
 import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
-import AnimeCard from '../components/AnimeCard.vue'
+import axios from '../utils/axios'
+import { $message } from '../utils/message'
+import defaultImage from '../assets/favorites/bangumi.png'
 
 const router = useRouter()
 const authStore = useAuthStore()
 
 const user = computed(() => authStore.user)
-const favorites = ref([])
+const folders = ref([])
 const watchHistory = ref([])
 const userSignature = ref('')
 const editingSignature = ref(false)
@@ -89,6 +117,28 @@ const defaultAvatarUrl = '/src/assets/avatars/default.svg'
 
 const formatDate = (dateString) => {
   if (!dateString) return ''
+  return new Date(dateString).toLocaleDateString('zh-CN')
+}
+
+const formatTime = (seconds) => {
+  if (seconds == null || seconds < 0) return '0:00'
+  const m = Math.floor(seconds / 60)
+  const s = Math.floor(seconds % 60)
+  return `${m}:${s.toString().padStart(2, '0')}`
+}
+
+const formatRelativeTime = (dateString) => {
+  if (!dateString) return ''
+  const now = Date.now()
+  const then = new Date(dateString).getTime()
+  const diff = now - then
+  const minutes = Math.floor(diff / 60000)
+  const hours = Math.floor(diff / 3600000)
+  const days = Math.floor(diff / 86400000)
+  if (minutes < 1) return '刚刚'
+  if (minutes < 60) return `${minutes}分钟前`
+  if (hours < 24) return `${hours}小时前`
+  if (days < 7) return `${days}天前`
   return new Date(dateString).toLocaleDateString('zh-CN')
 }
 
@@ -142,6 +192,7 @@ const handleAvatarChange = async (event) => {
       const data = await response.json()
       if (data.success && data.data && authStore.user) {
         authStore.user.avatarUrl = data.data
+        $message.success('头像上传成功')
       }
     } catch (error) {
       console.error('Failed to upload avatar:', error)
@@ -168,17 +219,14 @@ watch(() => user.value?.avatar, () => {
   loadAvatar()
 }, { immediate: true })
 
-const fetchFavorites = async () => {
+const fetchFolders = async () => {
   try {
-    const response = await fetch('/api/user/favorites', {
-      headers: {
-        'Authorization': `Bearer ${authStore.token}`
-      }
-    })
-    const data = await response.json()
-    favorites.value = data.data || []
+    const response = await axios.get('/user/favorites/folders')
+    if (response.data && response.data.data) {
+      folders.value = response.data.data
+    }
   } catch (error) {
-    console.error('Failed to fetch favorites:', error)
+    console.error('Failed to fetch folders:', error)
   }
 }
 
@@ -196,12 +244,16 @@ const fetchWatchHistory = async () => {
   }
 }
 
+const goToFolder = (folderId) => {
+  router.push('/favorites')
+}
+
 onMounted(async () => {
   if (authStore.isAuthenticated && !authStore.user) {
     await authStore.verifyToken()
   }
   if (authStore.isAuthenticated) {
-    fetchFavorites()
+    fetchFolders()
     fetchWatchHistory()
   }
 })
@@ -340,6 +392,35 @@ onMounted(async () => {
   margin-bottom: 1.5rem;
 }
 
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.section-header div {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin: 0;
+  border: none;
+  padding: 0;
+}
+
+.see-more {
+  color: var(--primary-color);
+  text-decoration: none;
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: color 0.2s;
+}
+
+.see-more:hover {
+  color: var(--secondary-color);
+}
+
 .section h2 {
   font-size: 1.125rem;
   font-weight: 600;
@@ -358,29 +439,80 @@ onMounted(async () => {
   margin-bottom: 1rem;
 }
 
-.favorites-grid {
+.folders-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, 160px);
-  gap: 1.5rem;
+  grid-template-columns: repeat(auto-fill, 180px);
+  gap: 1rem;
   justify-content: left;
+}
+
+.folder-card {
+  background: var(--background-dark);
+  border-radius: 12px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.folder-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+}
+
+.folder-image {
+  aspect-ratio: 1;
+  overflow: hidden;
+  background: var(--border-color);
+}
+
+.folder-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.folder-info {
+  padding: 0.75rem;
+}
+
+.folder-info h3 {
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  margin: 0 0 0.25rem 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.folder-info p {
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  margin: 0;
 }
 
 .watch-history-list {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 0.75rem;
 }
 
 .history-item {
-  background: var(--background-dark);
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #1a1a2e 100%);
   border-radius: 0.75rem;
   overflow: hidden;
+  border: 1px solid rgba(100, 100, 255, 0.1);
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.history-item:hover {
+  border-color: rgba(100, 100, 255, 0.3);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
 }
 
 .history-anime {
   display: flex;
   gap: 1rem;
-  padding: 1rem;
+  padding: 0.75rem 1rem;
   text-decoration: none;
   color: inherit;
 }
@@ -390,17 +522,89 @@ onMounted(async () => {
   height: 80px;
   border-radius: 0.5rem;
   object-fit: cover;
+  flex-shrink: 0;
 }
 
-.history-info h4 {
-  font-size: 0.875rem;
+.history-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.history-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 0.15rem;
+}
+
+.history-header h4 {
+  font-size: 0.9rem;
   font-weight: 600;
-  margin-bottom: 0.25rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+}
+
+.history-time {
+  font-size: 0.675rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  margin-left: 0.5rem;
+  flex-shrink: 0;
 }
 
 .history-info p {
   font-size: 0.75rem;
   color: var(--text-secondary);
+  margin-bottom: 0.3rem;
+}
+
+.time-display {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  margin-top: 0.25rem;
+  margin-bottom: 0;
+}
+
+.progress-bar-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.progress-bar {
+  flex: 1;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--primary-color), var(--secondary-color));
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.progress-text {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  min-width: 35px;
+}
+
+.badge-success {
+  font-size: 0.625rem;
+  padding: 0.125rem 0.4rem;
+  background: rgba(34, 197, 94, 0.15);
+  color: #22c55e;
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  border-radius: 0.25rem;
+  white-space: nowrap;
 }
 
 @media (max-width: 768px) {

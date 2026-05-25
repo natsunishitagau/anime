@@ -12,6 +12,11 @@ const routes = [
     component: () => import('../views/AnimeDetail.vue')
   },
   {
+    path: '/watch/:id',
+    name: 'VideoPlayer',
+    component: () => import('../views/VideoPlayer.vue')
+  },
+  {
     path: '/browse',
     name: 'Browse',
     component: () => import('../views/Browse.vue')
