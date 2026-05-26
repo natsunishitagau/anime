@@ -4,6 +4,8 @@ import com.anime.service.AnimeSyncService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Map;
+
 @RestController
 @RequestMapping("/api/admin")
 public class AnimeSyncController {
@@ -57,5 +59,29 @@ public class AnimeSyncController {
     public ResponseEntity<String> syncAnimeById(@PathVariable Long animeId) {
         String result = animeSyncService.syncAnimeById(animeId);
         return ResponseEntity.ok(result);
+    }
+
+    @PostMapping("/sync/anime/year/missing")
+    public ResponseEntity<String> syncAnimeYearFromApi() {
+        String result = animeSyncService.syncAnimeYearFromApi();
+        return ResponseEntity.ok(result);
+    }
+
+    @PostMapping("/sync/anime/{animeId}/year")
+    public ResponseEntity<String> syncAnimeYearById(@PathVariable Long animeId) {
+        String result = animeSyncService.syncAnimeYearById(animeId);
+        return ResponseEntity.ok(result);
+    }
+
+    @GetMapping("/sync/anime/year/progress")
+    public ResponseEntity<Map<String, Object>> getSyncProgress() {
+        Map<String, Object> progress = animeSyncService.getSyncProgress();
+        return ResponseEntity.ok(progress);
+    }
+
+    @PostMapping("/sync/anime/year/stop")
+    public ResponseEntity<String> stopSync() {
+        animeSyncService.stopSync();
+        return ResponseEntity.ok("已发送停止同步命令");
     }
 }

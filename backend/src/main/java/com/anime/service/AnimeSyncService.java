@@ -32,6 +32,14 @@ public class AnimeSyncService {
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
 
+    private volatile boolean stopSync = false;
+    private volatile int syncProgress = 0;
+    private volatile int syncTotal = 0;
+    private volatile int syncSuccess = 0;
+    private volatile int syncFail = 0;
+    private volatile int syncSkipped = 0;
+    private volatile boolean isSyncing = false;
+
     private static final Map<String, String> GENRE_TRANSLATIONS = new HashMap<>();
     private static final Map<String, String> TYPE_TRANSLATIONS = new HashMap<>();
     private static final Map<String, String> STATUS_TRANSLATIONS = new HashMap<>();
@@ -566,6 +574,143 @@ public class AnimeSyncService {
                 return "解析动漫数据失败";
             }
         } catch (Exception e) {
+            return "同步失败: " + e.getMessage();
+        }
+    }
+
+    @Transactional
+    public String syncAnimeYearFromApi() {
+        List<Anime> animeWithoutYear = animeRepository.findByYearIsNull();
+        if (animeWithoutYear == null || animeWithoutYear.isEmpty()) {
+            return "没有找到年份为空的动漫";
+        }
+
+        stopSync = false;
+        syncProgress = 0;
+        syncTotal = animeWithoutYear.size();
+        syncSuccess = 0;
+        syncFail = 0;
+        syncSkipped = 0;
+        isSyncing = true;
+
+        for (Anime anime : animeWithoutYear) {
+            if (stopSync) {
+                isSyncing = false;
+                return String.format("同步已停止：成功 %d 个，失败 %d 个，跳过 %d 个（无年份数据），已处理 %d/%d", 
+                    syncSuccess, syncFail, syncSkipped, syncProgress, syncTotal);
+            }
+
+            try {
+                String url = String.format("https://api.jikan.moe/v4/anime/%d", anime.getId());
+                Thread.sleep(500);
+
+                ResponseEntity<String> response = restTemplate.getForEntity(url, String.class);
+
+                if (response.getBody() == null) {
+                    syncFail++;
+                    syncProgress++;
+                    continue;
+                }
+
+                JsonNode root = objectMapper.readTree(response.getBody());
+                JsonNode data = root.get("data");
+
+                if (data == null || data.isNull()) {
+                    syncFail++;
+                    syncProgress++;
+                    continue;
+                }
+
+                JsonNode aired = data.get("aired");
+                if (aired != null && !aired.isNull()) {
+                    JsonNode prop = aired.get("prop");
+                    if (prop != null && !prop.isNull()) {
+                        JsonNode from = prop.get("from");
+                        if (from != null && !from.isNull()) {
+                            JsonNode yearNode = from.get("year");
+                            if (yearNode != null && !yearNode.isNull()) {
+                                Integer year = yearNode.asInt();
+                                anime.setYear(year);
+                                animeRepository.save(anime);
+                                syncSuccess++;
+                                syncProgress++;
+                                continue;
+                            }
+                        }
+                    }
+                }
+                syncSkipped++;
+                syncProgress++;
+            } catch (Exception e) {
+                syncFail++;
+                syncProgress++;
+            }
+        }
+
+        isSyncing = false;
+        return String.format("年份同步完成：成功 %d 个，失败 %d 个，跳过 %d 个（无年份数据）", syncSuccess, syncFail, syncSkipped);
+    }
+
+    public void stopSync() {
+        this.stopSync = true;
+    }
+
+    public Map<String, Object> getSyncProgress() {
+        Map<String, Object> progress = new HashMap<>();
+        progress.put("isSyncing", isSyncing);
+        progress.put("progress", syncProgress);
+        progress.put("total", syncTotal);
+        progress.put("success", syncSuccess);
+        progress.put("fail", syncFail);
+        progress.put("skipped", syncSkipped);
+        progress.put("percentage", syncTotal > 0 ? (int) ((syncProgress * 100.0) / syncTotal) : 0);
+        return progress;
+    }
+
+    @Transactional
+    public String syncAnimeYearById(Long animeId) {
+        Optional<Anime> optionalAnime = animeRepository.findById(animeId);
+        if (optionalAnime.isEmpty()) {
+            return "未找到ID为 " + animeId + " 的动漫";
+        }
+
+        Anime anime = optionalAnime.get();
+
+        try {
+            String url = String.format("https://api.jikan.moe/v4/anime/%d", animeId);
+
+            ResponseEntity<String> response = restTemplate.getForEntity(url, String.class);
+
+            if (response.getBody() == null) {
+                return "API返回为空";
+            }
+
+            JsonNode root = objectMapper.readTree(response.getBody());
+            JsonNode data = root.get("data");
+
+            if (data == null || data.isNull()) {
+                return "未找到ID为 " + animeId + " 的动漫数据";
+            }
+
+            JsonNode aired = data.get("aired");
+            if (aired != null && !aired.isNull()) {
+                JsonNode prop = aired.get("prop");
+                if (prop != null && !prop.isNull()) {
+                    JsonNode from = prop.get("from");
+                    if (from != null && !from.isNull()) {
+                        JsonNode yearNode = from.get("year");
+                        if (yearNode != null && !yearNode.isNull()) {
+                            Integer year = yearNode.asInt();
+                            anime.setYear(year);
+                            animeRepository.save(anime);
+                            return String.format("成功为动漫 %d (%s) 更新年份为 %d", animeId, anime.getTitle(), year);
+                        }
+                    }
+                }
+            }
+            return String.format("动漫 %d (%s) 未找到年份数据", animeId, anime.getTitle());
+        } catch (Exception e) {
+            e.printStackTrace();
             return "同步失败: " + e.getMessage();
         }
     }

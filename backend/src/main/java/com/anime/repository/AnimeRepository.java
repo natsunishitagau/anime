@@ -18,6 +18,8 @@ public interface AnimeRepository extends JpaRepository<Anime, Long> {
 
     List<Anime> findByYear(Integer year);
 
+    List<Anime> findByYearIsNull();
+
     List<Anime> findByStatus(String status);
 
     @Query("SELECT a FROM Anime a JOIN a.genres g WHERE g.name LIKE %:genre%")
