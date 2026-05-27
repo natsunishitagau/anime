@@ -8,14 +8,21 @@
       </div>
     </section>
 
-    <section class="section" v-if="recommendations.length > 0">
+    <section class="section" v-if="authStore.isAuthenticated">
       <div class="container">
         <div class="section-header">
           <h2>🎯 为你推荐</h2>
           <router-link to="/browse" class="see-more">查看更多 →</router-link>
         </div>
-        <div class="grid grid-5">
+        <div v-if="recommendationsLoading" class="loading-container">
+          <div class="loading-spinner"></div>
+          <p>正在获取推荐内容...</p>
+        </div>
+        <div v-else-if="recommendations.length > 0" class="grid grid-5">
           <AnimeCard v-for="anime in recommendations" :key="anime.id" :anime="anime" />
+        </div>
+        <div v-else class="empty-state">
+          <p>暂无推荐内容，快去收藏或观看一些番剧吧</p>
         </div>
       </div>
     </section>
@@ -84,11 +91,14 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useAnimeStore } from '../stores/anime'
+import { useAuthStore } from '../stores/auth'
 import AnimeCard from '../components/AnimeCard.vue'
 
 const animeStore = useAnimeStore()
+const authStore = useAuthStore()
 
 const recommendations = ref([])
+const recommendationsLoading = ref(false)
 const trending = ref([])
 const topRated = ref([])
 const seasonalAnime = ref([])
@@ -139,12 +149,29 @@ const fetchSeasonalAnime = async () => {
 }
 
 onMounted(async () => {
-  recommendations.value = await animeStore.fetchRecommendations(10)
-  await animeStore.fetchTrending(10)
+  // 并行加载其他内容，不受推荐加载影响
+  await Promise.all([
+    animeStore.fetchTrending(10),
+    animeStore.fetchTopRated(10),
+    fetchSeasonalAnime()
+  ])
   trending.value = animeStore.trending
-  await animeStore.fetchTopRated(10)
   topRated.value = animeStore.topRated
-  await fetchSeasonalAnime()
+  
+  // 异步加载推荐，不阻塞其他内容
+  if (authStore.isAuthenticated) {
+    recommendationsLoading.value = true
+    setTimeout(async () => {
+      try {
+        recommendations.value = await animeStore.fetchRecommendations(10)
+      } catch (error) {
+        console.error('Failed to fetch recommendations:', error)
+        recommendations.value = []
+      } finally {
+        recommendationsLoading.value = false
+      }
+    }, 100)
+  }
 })
 </script>
 
@@ -311,6 +338,36 @@ onMounted(async () => {
 .genre-card:hover {
   background: var(--primary-color);
   transform: translateY(-2px);
+}
+
+.loading-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem;
+  gap: 1rem;
+}
+
+.loading-spinner {
+  width: 40px;
+  height: 40px;
+  border: 4px solid var(--border-color);
+  border-top-color: var(--primary-color);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.empty-state {
+  text-align: center;
+  padding: 3rem;
+  color: var(--text-secondary);
 }
 
 @media (max-width: 768px) {

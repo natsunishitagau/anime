@@ -27,7 +27,6 @@ public class AnimeCacheService {
 
     private static final String TRENDING_KEY = "anime:trending";
     private static final String TOP_RATED_KEY = "anime:top-rated";
-    private static final String RECOMMENDATIONS_KEY = "anime:recommendations";
     private static final String SEASONAL_KEY = "anime:seasonal";
     private static final int CACHE_DURATION_MINUTES = 5;
 
@@ -62,18 +61,6 @@ public class AnimeCacheService {
             return (List<AnimeDto>) cached;
         }
         List<AnimeDto> result = fetchTopRatedAnime(limit);
-        redisUtil.set(key, result, CACHE_DURATION_MINUTES, TimeUnit.MINUTES);
-        return result;
-    }
-
-    @SuppressWarnings("unchecked")
-    public List<AnimeDto> getRecommendations(int limit) {
-        String key = RECOMMENDATIONS_KEY + ":" + limit;
-        Object cached = redisUtil.get(key);
-        if (cached != null) {
-            return (List<AnimeDto>) cached;
-        }
-        List<AnimeDto> result = fetchRecommendations(limit);
         redisUtil.set(key, result, CACHE_DURATION_MINUTES, TimeUnit.MINUTES);
         return result;
     }
@@ -175,19 +162,6 @@ public class AnimeCacheService {
                 .collect(Collectors.toList());
     }
 
-    private List<AnimeDto> fetchRecommendations(int limit) {
-        List<com.anime.entity.Anime> allAnime = animeRepository.findAll();
-        if (allAnime == null) {
-            return List.of();
-        }
-        return allAnime.stream()
-                .filter(a -> a.getScore() != null)
-                .sorted((a, b) -> Double.compare(b.getScore(), a.getScore()))
-                .limit(limit)
-                .map(dtoMapper::toAnimeDto)
-                .collect(Collectors.toList());
-    }
-
     private List<AnimeDto> fetchSeasonalAnime(String season, int limit) {
         List<com.anime.entity.Anime> allAnime = animeRepository.findAll();
         if (allAnime == null) {
@@ -207,7 +181,6 @@ public class AnimeCacheService {
         try {
             refreshTrendingCache();
             refreshTopRatedCache();
-            refreshRecommendationsCache();
             refreshSeasonalCache();
         } catch (Exception e) {
             // Log the error but don't let it break the scheduler
@@ -216,7 +189,7 @@ public class AnimeCacheService {
     }
 
     public void refreshTrendingCache() {
-        List<Integer> limits = List.of(10, 20, 50);
+        List<Integer> limits = List.of(10);
         for (int limit : limits) {
             String key = TRENDING_KEY + ":" + limit;
             List<AnimeDto> data = fetchTrendingAnime(limit);
@@ -225,7 +198,7 @@ public class AnimeCacheService {
     }
 
     public void refreshTopRatedCache() {
-        List<Integer> limits = List.of(10, 20, 50);
+        List<Integer> limits = List.of(10);
         for (int limit : limits) {
             String key = TOP_RATED_KEY + ":" + limit;
             List<AnimeDto> data = fetchTopRatedAnime(limit);
@@ -233,18 +206,9 @@ public class AnimeCacheService {
         }
     }
 
-    public void refreshRecommendationsCache() {
-        List<Integer> limits = List.of(10, 20, 50);
-        for (int limit : limits) {
-            String key = RECOMMENDATIONS_KEY + ":" + limit;
-            List<AnimeDto> data = fetchRecommendations(limit);
-            redisUtil.set(key, data, CACHE_DURATION_MINUTES, TimeUnit.MINUTES);
-        }
-    }
-
     public void refreshSeasonalCache() {
         List<String> seasons = List.of("", "春季", "夏季", "秋季", "冬季");
-        List<Integer> limits = List.of(10, 20, 50);
+        List<Integer> limits = List.of(10);
         for (String season : seasons) {
             for (int limit : limits) {
                 String key = SEASONAL_KEY + ":" + season + ":" + limit;

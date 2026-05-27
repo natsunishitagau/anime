@@ -31,8 +31,29 @@ public class Review {
     @Column(name = "username")
     private String username;
 
+    @Column(name = "likes")
+    private Integer likes = 0;
+
+    @Column(name = "top_level_id")
+    private Long topLevelId;
+
+    @Column(name = "parent_id")
+    private Long parentId;
+
+    @Column(name = "is_deleted")
+    private Boolean isDeleted = false;
+
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();
+        if (likes == null) {
+            likes = 0;
+        }
+        if (isDeleted == null) {
+            isDeleted = false;
+        }
+        if (topLevelId == null) {
+            topLevelId = id;
+        }
     }
 }

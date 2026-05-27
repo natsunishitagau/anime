@@ -13,9 +13,11 @@ import com.anime.entity.Favorite;
 import com.anime.entity.Genre;
 import com.anime.entity.Rating;
 import com.anime.entity.Review;
+import com.anime.entity.ReviewLike;
 import com.anime.entity.User;
 import com.anime.repository.*;
 import com.anime.service.AnimeCacheService;
+import com.anime.service.MessageService;
 import com.anime.service.RecommendationService;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -36,6 +38,7 @@ public class AnimeController {
     private final CharacterRepository characterRepository;
     private final AnimeCharacterRepository animeCharacterRepository;
     private final ReviewRepository reviewRepository;
+    private final ReviewLikeRepository reviewLikeRepository;
     private final FavoriteRepository favoriteRepository;
     private final RatingRepository ratingRepository;
     private final GenreRepository genreRepository;
@@ -44,17 +47,19 @@ public class AnimeController {
     private final AnimeCacheService animeCacheService;
     private final DtoMapper dtoMapper;
     private final JdbcTemplate jdbcTemplate;
+    private final MessageService messageService;
 
     public AnimeController(AnimeRepository animeRepository, CharacterRepository characterRepository,
                            AnimeCharacterRepository animeCharacterRepository, ReviewRepository reviewRepository,
-                           FavoriteRepository favoriteRepository, RatingRepository ratingRepository,
-                           GenreRepository genreRepository, UserRepository userRepository,
+                           ReviewLikeRepository reviewLikeRepository, FavoriteRepository favoriteRepository,
+                           RatingRepository ratingRepository, GenreRepository genreRepository, UserRepository userRepository,
                            RecommendationService recommendationService, AnimeCacheService animeCacheService,
-                           DtoMapper dtoMapper, JdbcTemplate jdbcTemplate) {
+                           DtoMapper dtoMapper, JdbcTemplate jdbcTemplate, MessageService messageService) {
         this.animeRepository = animeRepository;
         this.characterRepository = characterRepository;
         this.animeCharacterRepository = animeCharacterRepository;
         this.reviewRepository = reviewRepository;
+        this.reviewLikeRepository = reviewLikeRepository;
         this.favoriteRepository = favoriteRepository;
         this.ratingRepository = ratingRepository;
         this.genreRepository = genreRepository;
@@ -63,6 +68,7 @@ public class AnimeController {
         this.animeCacheService = animeCacheService;
         this.dtoMapper = dtoMapper;
         this.jdbcTemplate = jdbcTemplate;
+        this.messageService = messageService;
     }
 
     @GetMapping
@@ -79,7 +85,15 @@ public class AnimeController {
         List<Anime> animeList = animeRepository.findAll();
 
         if (type != null) {
-            animeList = animeList.stream().filter(a -> type.equals(a.getType())).collect(Collectors.toList());
+            if ("其他".equals(type)) {
+                animeList = animeList.stream()
+                        .filter(a -> !"TV动画".equals(a.getType()) && 
+                                    !"剧场版".equals(a.getType()) && 
+                                    !"OVA".equals(a.getType()))
+                        .collect(Collectors.toList());
+            } else {
+                animeList = animeList.stream().filter(a -> type.equals(a.getType())).collect(Collectors.toList());
+            }
         }
         if (source != null) {
             animeList = animeList.stream().filter(a -> source.equals(a.getSource())).collect(Collectors.toList());
@@ -187,9 +201,18 @@ public class AnimeController {
 
         Map<String, Object> response = new HashMap<>();
         response.put("characters", characterDtos);
+        
+        final Long currentUserId = (authentication != null && authentication.getPrincipal() instanceof UserPrincipal) 
+            ? ((UserPrincipal) authentication.getPrincipal()).getId() 
+            : null;
+        
         List<ReviewDto> reviewDtos = reviews.stream().map(review -> {
             User user = userRepository.findById(review.getUserId()).orElse(null);
             String avatarUrl = user != null && user.getAvatarUrl() != null ? user.getAvatarUrl() : null;
+            Boolean liked = false;
+            if (currentUserId != null) {
+                liked = reviewLikeRepository.existsByUserIdAndReviewId(currentUserId, review.getId());
+            }
             return new ReviewDto(
                     review.getId(),
                     review.getUserId(),
@@ -197,7 +220,12 @@ public class AnimeController {
                     avatarUrl,
                     review.getAnimeId(),
                     review.getComment(),
-                    review.getCreatedAt() != null ? review.getCreatedAt().toString() : null
+                    review.getCreatedAt() != null ? review.getCreatedAt().toString() : null,
+                    review.getLikes(),
+                    liked,
+                    review.getTopLevelId(),
+                    review.getParentId(),
+                    review.getIsDeleted()
             );
         }).collect(Collectors.toList());
         response.put("reviews", reviewDtos);
@@ -265,8 +293,19 @@ public class AnimeController {
 
     @GetMapping("/recommendations")
     public ResponseEntity<ApiResponse<List<AnimeDto>>> getRecommendations(
-            @RequestParam(defaultValue = "10") int limit) {
-        List<AnimeDto> dtoList = animeCacheService.getRecommendations(limit);
+            @RequestParam(defaultValue = "10") int limit,
+            Authentication authentication) {
+        // 如果用户未登录，返回空列表（不显示为你推荐）
+        if (authentication == null) {
+            return ResponseEntity.ok(ApiResponse.success(Collections.emptyList()));
+        }
+        
+        // 用户已登录，获取个性化推荐
+        UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
+        List<Anime> animeList = recommendationService.getRecommendations(userPrincipal.getId(), limit);
+        List<AnimeDto> dtoList = animeList.stream()
+                .map(dtoMapper::toAnimeDto)
+                .collect(Collectors.toList());
         return ResponseEntity.ok(ApiResponse.success(dtoList));
     }
 
@@ -354,6 +393,7 @@ public class AnimeController {
     public ResponseEntity<ApiResponse<Void>> addReview(
             @PathVariable Long id,
             @RequestParam(required = false) String comment,
+            @RequestParam(required = false) Long parentId,
             Authentication authentication) {
         if (authentication == null) {
             return ResponseEntity.status(401).body(ApiResponse.error("Authentication required"));
@@ -366,8 +406,281 @@ public class AnimeController {
         review.setAnimeId(id);
         review.setComment(comment);
         review.setUsername(userPrincipal.getUsername());
+        
+        if (parentId != null) {
+            Optional<Review> parentReview = reviewRepository.findById(parentId);
+            if (parentReview.isPresent()) {
+                review.setParentId(parentId);
+                review.setTopLevelId(parentReview.get().getTopLevelId() != null ? parentReview.get().getTopLevelId() : parentId);
+                
+                Review parent = parentReview.get();
+                messageService.sendReviewReplyNotification(
+                    parent.getUserId(),
+                    userPrincipal.getId(),
+                    review.getId(),
+                    userPrincipal.getUsername(),
+                    comment
+                );
+            }
+        }
+        
         reviewRepository.save(review);
 
         return ResponseEntity.ok(ApiResponse.success("Review added", null));
+    }
+
+    @PostMapping("/{id}/review/{reviewId}/like")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> likeReview(
+            @PathVariable Long id,
+            @PathVariable Long reviewId,
+            Authentication authentication) {
+        if (authentication == null) {
+            return ResponseEntity.status(401).body(ApiResponse.error("Authentication required"));
+        }
+
+        UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
+        Optional<Review> reviewOpt = reviewRepository.findById(reviewId);
+        if (reviewOpt.isEmpty()) {
+            return ResponseEntity.status(404).body(ApiResponse.error("Review not found"));
+        }
+
+        Review review = reviewOpt.get();
+        Optional<ReviewLike> existingLike = reviewLikeRepository.findByUserIdAndReviewId(userPrincipal.getId(), reviewId);
+        
+        Map<String, Object> result = new HashMap<>();
+        
+        if (existingLike.isPresent()) {
+            reviewLikeRepository.delete(existingLike.get());
+            review.setLikes(review.getLikes() != null ? review.getLikes() - 1 : 0);
+            result.put("liked", false);
+            
+            messageService.cancelReviewLikeNotification(
+                review.getUserId(),
+                userPrincipal.getId(),
+                reviewId
+            );
+        } else {
+            ReviewLike reviewLike = new ReviewLike();
+            reviewLike.setUserId(userPrincipal.getId());
+            reviewLike.setReviewId(reviewId);
+            reviewLikeRepository.save(reviewLike);
+            review.setLikes(review.getLikes() != null ? review.getLikes() + 1 : 1);
+            result.put("liked", true);
+            
+            messageService.sendReviewLikeNotification(
+                review.getUserId(),
+                userPrincipal.getId(),
+                reviewId,
+                userPrincipal.getUsername(),
+                review.getComment()
+            );
+        }
+        
+        reviewRepository.save(review);
+        result.put("likes", review.getLikes());
+
+        return ResponseEntity.ok(ApiResponse.success(result));
+    }
+
+    @DeleteMapping("/{id}/review/{reviewId}")
+    public ResponseEntity<ApiResponse<Void>> deleteReview(
+            @PathVariable Long id,
+            @PathVariable Long reviewId,
+            Authentication authentication) {
+        if (authentication == null) {
+            return ResponseEntity.status(401).body(ApiResponse.error("Authentication required"));
+        }
+
+        UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
+        Optional<Review> reviewOpt = reviewRepository.findById(reviewId);
+        
+        if (reviewOpt.isEmpty()) {
+            return ResponseEntity.status(404).body(ApiResponse.error("Review not found"));
+        }
+
+        Review review = reviewOpt.get();
+        if (!review.getUserId().equals(userPrincipal.getId())) {
+            return ResponseEntity.status(403).body(ApiResponse.error("Unauthorized to delete this review"));
+        }
+
+        review.setIsDeleted(true);
+        review.setComment("评论已删除");
+        reviewRepository.save(review);
+
+        return ResponseEntity.ok(ApiResponse.success("Review deleted", null));
+    }
+
+    @GetMapping("/{id}/reviews/tree")
+    public ResponseEntity<ApiResponse<List<ReviewDto>>> getReviewsTree(
+            @PathVariable Long id,
+            Authentication authentication) {
+        
+        final Long currentUserId = (authentication != null && authentication.getPrincipal() instanceof UserPrincipal) 
+            ? ((UserPrincipal) authentication.getPrincipal()).getId() 
+            : null;
+        
+        List<Review> allReviews = reviewRepository.findByAnimeIdAndIsDeletedFalseOrderByCreatedAtDesc(id);
+        
+        List<ReviewDto> reviewDtos = allReviews.stream().map(review -> {
+            User user = userRepository.findById(review.getUserId()).orElse(null);
+            String avatarUrl = user != null && user.getAvatarUrl() != null ? user.getAvatarUrl() : null;
+            Boolean liked = false;
+            if (currentUserId != null) {
+                liked = reviewLikeRepository.existsByUserIdAndReviewId(currentUserId, review.getId());
+            }
+            return new ReviewDto(
+                    review.getId(),
+                    review.getUserId(),
+                    review.getUsername(),
+                    avatarUrl,
+                    review.getAnimeId(),
+                    review.getComment(),
+                    review.getCreatedAt() != null ? review.getCreatedAt().toString() : null,
+                    review.getLikes(),
+                    liked,
+                    review.getTopLevelId(),
+                    review.getParentId(),
+                    review.getIsDeleted()
+            );
+        }).collect(Collectors.toList());
+
+        return ResponseEntity.ok(ApiResponse.success(reviewDtos));
+    }
+
+    @PostMapping("/game-sequence")
+    public ResponseEntity<ApiResponse<List<AnimeDto>>> getGameSequence(
+            @RequestBody GameSequenceRequest request) {
+        
+        Integer startYear = request.getStartYear();
+        Integer endYear = request.getEndYear();
+        String typeFilter = request.getTypeFilter();
+        int count = request.getCount();
+
+        List<Anime> allAnime = animeRepository.findAll();
+
+        List<Anime> filtered = allAnime.stream()
+                .filter(anime -> {
+                    if (anime.getScore() == null || anime.getScore() == 0) {
+                        return false;
+                    }
+                    if (anime.getImageUrl() == null || anime.getImageUrl().isEmpty()) {
+                        return false;
+                    }
+                    if (anime.getTitleJp() == null || anime.getTitleJp().isEmpty()) {
+                        return false;
+                    }
+                    return true;
+                })
+                .filter(anime -> {
+                    if (startYear == null && endYear == null) {
+                        return true;
+                    }
+                    if (anime.getYear() == null) {
+                        return false;
+                    }
+                    boolean afterStart = startYear == null || anime.getYear() >= startYear;
+                    boolean beforeEnd = endYear == null || anime.getYear() <= endYear;
+                    return afterStart && beforeEnd;
+                })
+                .filter(anime -> {
+                    if ("all".equals(typeFilter)) {
+                        return true;
+                    }
+                    return typeFilter.equals(anime.getType());
+                })
+                .collect(Collectors.toList());
+
+        List<Anime> deduplicated = deduplicateByTitleJpPrefix(filtered);
+
+        Map<Double, Anime> uniqueScoreMap = deduplicated.stream()
+                .filter(a -> a.getScore() != null)
+                .collect(Collectors.toMap(
+                        Anime::getScore,
+                        a -> a,
+                        (existing, replacement) -> existing
+                ));
+
+        List<Anime> uniqueScoreList = new ArrayList<>(uniqueScoreMap.values());
+
+        if (uniqueScoreList.size() < count) {
+            return ResponseEntity.ok(ApiResponse.success(new ArrayList<>()));
+        }
+
+        Collections.shuffle(uniqueScoreList);
+
+        List<AnimeDto> result = uniqueScoreList.stream()
+                .limit(count)
+                .map(dtoMapper::toAnimeDto)
+                .collect(Collectors.toList());
+
+        return ResponseEntity.ok(ApiResponse.success(result));
+    }
+
+    private List<Anime> deduplicateByTitleJpPrefix(List<Anime> animes) {
+        List<Anime> sorted = animes.stream()
+                .filter(a -> a.getTitleJp() != null && !a.getTitleJp().isEmpty())
+                .sorted(Comparator.comparingInt(a -> a.getTitleJp().length()))
+                .collect(Collectors.toList());
+
+        Set<String> seenPrefixes = new HashSet<>();
+        List<Anime> result = new ArrayList<>();
+
+        for (Anime anime : sorted) {
+            String titleJp = anime.getTitleJp();
+            boolean isSubset = false;
+
+            for (String seen : seenPrefixes) {
+                if (titleJp.startsWith(seen) || seen.startsWith(titleJp)) {
+                    isSubset = true;
+                    break;
+                }
+            }
+
+            if (!isSubset) {
+                result.add(anime);
+                seenPrefixes.add(titleJp);
+            }
+        }
+
+        return result;
+    }
+
+    public static class GameSequenceRequest {
+        private Integer startYear;
+        private Integer endYear;
+        private String typeFilter;
+        private int count;
+
+        public Integer getStartYear() {
+            return startYear;
+        }
+
+        public void setStartYear(Integer startYear) {
+            this.startYear = startYear;
+        }
+
+        public Integer getEndYear() {
+            return endYear;
+        }
+
+        public void setEndYear(Integer endYear) {
+            this.endYear = endYear;
+        }
+
+        public String getTypeFilter() {
+            return typeFilter;
+        }
+
+        public void setTypeFilter(String typeFilter) {
+            this.typeFilter = typeFilter;
+        }
+
+        public int getCount() {
+            return count;
+        }
+
+        public void setCount(int count) {
+            this.count = count;
+        }
     }
 }

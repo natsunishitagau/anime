@@ -13,4 +13,5 @@ public class CharacterDto {
     private String nameJp;
     private String imageUrl;
     private Integer favorites;
+    private String animeTitleJp;
 }

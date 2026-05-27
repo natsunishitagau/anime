@@ -46,7 +46,7 @@
             </div>
           </div>
 
-          <h2 class="section-title">剧集列表</h2>
+          <h2 class="section-title" v-if="videos && videos.length > 0">剧集列表</h2>
           <div class="episodes-bar" v-if="videos && videos.length > 0">
             <router-link
               v-for="video in videos"
@@ -84,7 +84,7 @@
           </section>
 
           <section class="section">
-            <h2>用户评论 <span v-if="anime.reviews?.length > 0">({{ anime.reviews.length }})</span></h2>
+            <h2>用户评论 <span v-if="reviewsTree?.length > 0">({{ reviewsTree.length }})</span></h2>
             <div class="review-form" v-if="isAuthenticated">
               <h3>发表评论</h3>
               <textarea v-model="reviewComment" class="input review-textarea" placeholder="写下你的评论..."></textarea>
@@ -95,16 +95,86 @@
             </div>
 
             <div class="reviews-list">
-              <div class="review-card" v-for="review in anime.reviews" :key="review.id">
-                <div class="review-avatar">
-                  <img :src="getAvatar(review.avatarUrl, review.username)" :alt="review.username || '匿名用户'" class="avatar-img" />
-                </div>
-                <div class="review-content">
-                  <div class="review-header">
-                    <span class="reviewer-name">{{ review.username || '匿名用户' }}</span>
+              <div v-for="topLevelReview in reviewsTree" :key="topLevelReview.id" class="review-thread">
+                <div class="review-card">
+                  <div style="display: flex;">
+                    <div class="review-avatar">
+                      <img :src="getAvatar(topLevelReview.avatarUrl, topLevelReview.username)" :alt="topLevelReview.username || '匿名用户'" class="avatar-img" />
+                    </div>
+                    <div class="review-content">
+                      <div class="review-header">
+                        <span class="reviewer-name">{{ topLevelReview.username || '匿名用户' }}</span>
+                      </div>
+                      <p class="review-comment">{{ topLevelReview.comment || '' }}</p>
+                      <div class="review-footer">
+                        <span class="review-date">{{ formatDate(topLevelReview.createdAt) }}</span>
+                        <div class="review-actions">
+                          <button @click="handleLike(topLevelReview)" class="like-btn" :class="{ 'liked': topLevelReview.liked }">
+                            <span>{{ topLevelReview.liked ? '❤️' : '🤍' }}</span>
+                            <span>{{ topLevelReview.likes || 0 }}</span>
+                          </button>
+                          <button @click="showReplyForm(topLevelReview.id)" class="reply-btn">回复</button>
+                          <button v-if="canDelete(topLevelReview)" @click="handleDelete(topLevelReview.id)" class="delete-btn">删除</button>
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                  <p class="review-comment">{{ review.comment || '' }}</p>
-                  <span class="review-date">{{ formatDate(review.createdAt) }}</span>
+                
+                  <div class="reply-form" v-if="replyingTo === topLevelReview.id">
+                    <div class="reply-avatar">
+                      <img :src="getAvatar(currentUser?.avatarUrl, currentUser?.username)" :alt="currentUser?.username || '匿名用户'" class="avatar-img" />
+                    </div>
+                    <div class="reply-input-wrapper">
+                      <textarea v-model="replyComment" class="input reply-textarea" :placeholder="`回复 @${topLevelReview.username}...`"></textarea>
+                      <div class="reply-actions">
+                        <button @click="submitReply(topLevelReview.id)" class="btn btn-primary">回复</button>
+                        <button @click="cancelReply" class="btn btn-secondary">取消</button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="replies-list" v-if="getReplies(topLevelReview.id).length > 0">
+                    <div class="review-card reply-card" v-for="reply in getReplies(topLevelReview.id)" :key="reply.id">
+                      <div style="display: flex;">
+                        <div class="review-avatar">
+                          <img :src="getAvatar(reply.avatarUrl, reply.username)" :alt="reply.username || '匿名用户'" class="avatar-img" />
+                        </div>
+                        <div class="review-content">
+                          <div class="review-header">
+                            <span class="reviewer-name">{{ reply.username || '匿名用户' }}</span>
+                          </div>
+                          <p class="review-comment">
+                            <span class="reply-prefix">回复 @{{ getParentUsername(reply.parentId) }} : </span>
+                            {{ reply.comment || '' }}
+                          </p>
+                          <div class="review-footer">
+                            <span class="review-date">{{ formatDate(reply.createdAt) }}</span>
+                            <div class="review-actions">
+                              <button @click="handleLike(reply)" class="like-btn" :class="{ 'liked': reply.liked }">
+                                <span>{{ reply.liked ? '❤️' : '🤍' }}</span>
+                                <span>{{ reply.likes || 0 }}</span>
+                              </button>
+                              <button @click="showReplyForm(reply.id)" class="reply-btn">回复</button>
+                              <button v-if="canDelete(reply)" @click="handleDelete(reply.id)" class="delete-btn">删除</button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div class="reply-form" v-if="isReplyingToReply(topLevelReview.id)">
+                      <div class="reply-avatar">
+                        <img :src="getAvatar(currentUser?.avatarUrl, currentUser?.username)" :alt="currentUser?.username || '匿名用户'" class="avatar-img" />
+                      </div>
+                      <div class="reply-input-wrapper">
+                        <textarea v-model="replyComment" class="input reply-textarea" :placeholder="`回复 @${getReplyingToUsername()}...`"></textarea>
+                        <div class="reply-actions">
+                          <button @click="submitReply(replyingTo)" class="btn btn-primary">回复</button>
+                          <button @click="cancelReply" class="btn btn-secondary">取消</button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -191,6 +261,7 @@
       </div>
     </div>
   </div>
+  <ConfirmDialog ref="confirmDialog" />
 </template>
 
 <script setup>
@@ -200,6 +271,7 @@ import { useAnimeStore } from '../stores/anime'
 import { useAuthStore } from '../stores/auth'
 import axios from '../utils/axios'
 import { $message } from '../utils/message'
+import ConfirmDialog from '../components/ConfirmDialog.vue'
 
 const route = useRoute()
 const animeStore = useAnimeStore()
@@ -214,8 +286,13 @@ const folders = ref([])
 const newFolderName = ref('')
 const dialogError = ref('')
 const videos = ref([])
+const reviewsTree = ref([])
+const replyComment = ref('')
+const replyingTo = ref(null)
+const confirmDialog = ref(null)
 
 const isAuthenticated = computed(() => authStore.isAuthenticated)
+const currentUser = computed(() => authStore.user)
 
 const fetchAnimeDetail = async () => {
   loading.value = true
@@ -225,8 +302,25 @@ const fetchAnimeDetail = async () => {
       userRating.value = anime.value.userRating
     }
     await fetchVideos()
+    await fetchReviewsTree()
   } finally {
     loading.value = false
+  }
+}
+
+const fetchReviewsTree = async () => {
+  try {
+    const reviews = await animeStore.fetchReviewsTree(route.params.id)
+    if (anime.value) {
+      anime.value.reviews = reviews
+    }
+    reviewsTree.value = reviews.filter(r => r.parentId === null)
+  } catch (err) {
+    console.error('Failed to fetch reviews:', err)
+    reviewsTree.value = []
+    if (anime.value) {
+      anime.value.reviews = []
+    }
   }
 }
 
@@ -303,7 +397,76 @@ const submitReview = async () => {
   if (success) {
     $message.success('评论发布成功')
     reviewComment.value = ''
-    fetchAnimeDetail()
+    await fetchReviewsTree()
+  }
+}
+
+const getReplies = (topLevelId) => {
+  const allReviews = anime.value?.reviews || []
+  return allReviews.filter(r => r.topLevelId === topLevelId && r.parentId !== null)
+}
+
+const getParentUsername = (parentId) => {
+  const allReviews = anime.value?.reviews || []
+  const parent = allReviews.find(r => r.id === parentId)
+  return parent?.username || '未知用户'
+}
+
+const isReplyingToReply = (topLevelId) => {
+  if (!replyingTo.value) return false
+  const allReviews = anime.value?.reviews || []
+  const replyingToReview = allReviews.find(r => r.id === replyingTo.value)
+  return replyingToReview && replyingToReview.topLevelId === topLevelId && replyingToReview.parentId !== null
+}
+
+const getReplyingToUsername = () => {
+  if (!replyingTo.value) return '未知用户'
+  const allReviews = anime.value?.reviews || []
+  const replyingToReview = allReviews.find(r => r.id === replyingTo.value)
+  return replyingToReview?.username || '未知用户'
+}
+
+const showReplyForm = (reviewId) => {
+  replyingTo.value = reviewId
+  replyComment.value = ''
+}
+
+const cancelReply = () => {
+  replyingTo.value = null
+  replyComment.value = ''
+}
+
+const submitReply = async (parentId) => {
+  if (!isAuthenticated.value || !replyComment.value.trim()) return
+  const success = await animeStore.addReview(route.params.id, replyComment.value, parentId)
+  if (success) {
+    $message.success('回复成功')
+    cancelReply()
+    await fetchReviewsTree()
+  }
+}
+
+const handleLike = async (review) => {
+  if (!isAuthenticated.value) return
+  const result = await animeStore.likeReview(route.params.id, review.id)
+  if (result) {
+    review.liked = result.liked
+    review.likes = result.likes
+  }
+}
+
+const canDelete = (review) => {
+  return isAuthenticated.value && currentUser.value && review.userId === currentUser.value.id
+}
+
+const handleDelete = async (reviewId) => {
+  if (!confirmDialog.value) return
+  const confirmed = await confirmDialog.value.show('确定要删除这条评论吗？')
+  if (!confirmed) return
+  const success = await animeStore.deleteReview(route.params.id, reviewId)
+  if (success) {
+    $message.success('删除成功')
+    await fetchReviewsTree()
   }
 }
 
@@ -312,16 +475,9 @@ const formatDate = (dateString) => {
   return new Date(dateString).toLocaleDateString('zh-CN')
 }
 
-const getAvatar = (avatarUrl, username) => {
+const getAvatar = (avatarUrl) => {
   if (avatarUrl) return avatarUrl
   return '/src/assets/avatars/default.svg'
-}
-
-const formatDuration = (seconds) => {
-  if (!seconds || isNaN(seconds)) return ''
-  const mins = Math.floor(seconds / 60)
-  const secs = Math.floor(seconds % 60)
-  return `${mins}:${secs.toString().padStart(2, '0')}`
 }
 
 onMounted(() => {
@@ -608,15 +764,27 @@ onUnmounted(() => {
 .reviews-list {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 1.5rem;
+}
+
+.review-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
 }
 
 .review-card {
   display: flex;
+  flex-direction: column;
   gap: 1rem;
   padding: 1rem;
   background: var(--background-light);
   border-radius: 0.75rem;
+}
+
+.reply-card {
+  margin-left: 3.5rem;
+  background: var(--surface-color);
 }
 
 .review-avatar {
@@ -633,6 +801,7 @@ onUnmounted(() => {
 .review-content {
   flex: 1;
   min-width: 0;
+  margin-left: 1rem;
 }
 
 .review-header {
@@ -646,6 +815,42 @@ onUnmounted(() => {
   font-weight: 600;
 }
 
+.review-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.like-btn,
+.reply-btn,
+.delete-btn {
+  padding: 0.25rem 0.5rem;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.like-btn:hover,
+.reply-btn:hover,
+.delete-btn:hover {
+  color: var(--primary-color);
+}
+
+.like-btn.liked {
+  color: #ef4444;
+}
+
+.delete-btn {
+  color: #ef4444;
+}
+
+.delete-btn:hover {
+  color: white;
+}
+
 .review-rating {
   color: #fbbf24;
 }
@@ -653,11 +858,59 @@ onUnmounted(() => {
 .review-comment {
   color: var(--text-secondary);
   margin-bottom: 0.5rem;
+  line-height: 1.6;
+}
+
+.reply-prefix {
+  color: var(--primary-color);
+  font-weight: 500;
 }
 
 .review-date {
   font-size: 0.75rem;
   color: var(--text-muted);
+}
+
+.review-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.reply-form {
+  margin-left: 3.5rem;
+  display: flex;
+  gap: 1rem;
+  padding: 1rem;
+  background: var(--surface-color);
+  border-radius: 0.5rem;
+}
+
+.reply-avatar {
+  flex-shrink: 0;
+}
+
+.reply-input-wrapper {
+  flex: 1;
+  min-width: 0;
+}
+
+.reply-textarea {
+  width: 100%;
+  min-height: 80px;
+  resize: vertical;
+  margin-bottom: 0.75rem;
+}
+
+.reply-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.replies-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
 }
 
 .sidebar {
@@ -926,10 +1179,6 @@ onUnmounted(() => {
 .btn-primary {
   background: var(--primary-color);
   color: #fff;
-}
-
-.btn-primary:hover:not(:disabled) {
-  background: var(--primary-hover);
 }
 
 .btn-secondary {

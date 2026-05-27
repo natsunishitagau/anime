@@ -15,4 +15,9 @@ public class ReviewDto {
     private Long animeId;
     private String comment;
     private String createdAt;
+    private Integer likes;
+    private Boolean liked;
+    private Long topLevelId;
+    private Long parentId;
+    private Boolean isDeleted;
 }

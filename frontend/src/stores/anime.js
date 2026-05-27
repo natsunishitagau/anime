@@ -140,12 +140,44 @@ export const useAnimeStore = defineStore('anime', {
       }
     },
 
-    async addReview(animeId, comment) {
+    async addReview(animeId, comment, parentId = null) {
       try {
-        const response = await axios.post(`${API_URL}/${animeId}/review?comment=${encodeURIComponent(comment || '')}`)
+        let url = `${API_URL}/${animeId}/review?comment=${encodeURIComponent(comment || '')}`
+        if (parentId) {
+          url += `&parentId=${parentId}`
+        }
+        const response = await axios.post(url)
         return response.data.success
       } catch (error) {
         return false
+      }
+    },
+
+    async likeReview(animeId, reviewId) {
+      try {
+        const response = await axios.post(`${API_URL}/${animeId}/review/${reviewId}/like`)
+        return response.data.data
+      } catch (error) {
+        return null
+      }
+    },
+
+    async deleteReview(animeId, reviewId) {
+      try {
+        const response = await axios.delete(`${API_URL}/${animeId}/review/${reviewId}`)
+        return response.data.success
+      } catch (error) {
+        return false
+      }
+    },
+
+    async fetchReviewsTree(animeId) {
+      try {
+        const response = await axios.get(`${API_URL}/${animeId}/reviews/tree`)
+        return response.data.data
+      } catch (error) {
+        console.error('Failed to fetch reviews tree:', error)
+        return []
       }
     }
   }

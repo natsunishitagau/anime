@@ -44,18 +44,42 @@ const routes = [
     meta: { requiresAuth: true }
   },
   {
+    path: '/messages',
+    name: 'Messages',
+    component: () => import('../views/Messages.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
     path: '/search',
     name: 'Search',
     component: () => import('../views/SearchResult.vue')
+  },
+  {
+    path: '/game',
+    name: 'Game',
+    component: () => import('../views/GameSelection.vue')
+  },
+  {
+    path: '/game/anime',
+    name: 'AnimeGame',
+    component: () => import('../views/AnimeGame.vue')
+  },
+  {
+    path: '/game/character',
+    name: 'CharacterGame',
+    component: () => import('../views/CharacterGame.vue')
   }
 ]
 
 const router = createRouter({
   history: createWebHistory(),
-  routes
+  routes,
+  scrollBehavior() {
+    return { top: 0 }
+  }
 })
 
-const publicPaths = ['/', '/login', '/register', '/search']
+const publicPaths = ['/', '/login', '/register', '/search', '/game', '/game/anime', '/game/character']
 
 router.beforeEach((to, from, next) => {
   const token = localStorage.getItem('token')

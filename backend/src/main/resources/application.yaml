@@ -27,6 +27,13 @@ spring:
       port: 6379
       password: 123456
 
+  rabbitmq:
+    host: 10.136.49.83 # 你的虚拟机IP
+    port: 5672 # 端口
+    virtual-host: zhy_host # 虚拟主机
+    username: zhy # 用户名
+    password: 123456 # 密码
+
   jpa:
     hibernate:
       ddl-auto: update

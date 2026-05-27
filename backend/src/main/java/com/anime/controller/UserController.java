@@ -5,18 +5,11 @@ import com.anime.dto.AnimeDto;
 import com.anime.dto.DtoMapper;
 import com.anime.dto.FolderReorderRequest;
 import com.anime.dto.UserPrincipal;
-import com.anime.entity.Anime;
-import com.anime.entity.Favorite;
 import com.anime.entity.FavoriteFolder;
 import com.anime.entity.User;
-import com.anime.entity.WatchHistory;
-import com.anime.repository.AnimeRepository;
-import com.anime.repository.AnimeVideoRepository;
 import com.anime.repository.FavoriteFolderRepository;
-import com.anime.repository.FavoriteRepository;
 import com.anime.repository.UserRepository;
-import com.anime.repository.WatchHistoryRepository;
-import com.anime.service.RecommendationService;
+import com.anime.service.UserService;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -32,26 +25,21 @@ import java.nio.file.StandardCopyOption;
 import java.util.UUID;
 
 import java.util.*;
-import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/user")
 public class UserController {
 
-    private final UserControllerHelper helper;
+    private final UserService userService;
     private final UserRepository userRepository;
     private final DtoMapper dtoMapper;
     private final FavoriteFolderRepository favoriteFolderRepository;
 
-    public UserController(FavoriteRepository favoriteRepository, 
-                          WatchHistoryRepository watchHistoryRepository,
-                          AnimeRepository animeRepository,
-                          AnimeVideoRepository animeVideoRepository,
-                          RecommendationService recommendationService,
+    public UserController(UserService userService,
                           UserRepository userRepository,
                           DtoMapper dtoMapper,
                           FavoriteFolderRepository favoriteFolderRepository) {
-        this.helper = new UserControllerHelper(favoriteRepository, watchHistoryRepository, animeRepository, animeVideoRepository, recommendationService, dtoMapper, favoriteFolderRepository);
+        this.userService = userService;
         this.userRepository = userRepository;
         this.dtoMapper = dtoMapper;
         this.favoriteFolderRepository = favoriteFolderRepository;
@@ -63,7 +51,7 @@ public class UserController {
             return ResponseEntity.status(401).body(ApiResponse.error("Authentication required"));
         }
         UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
-        List<Map<String, Object>> folders = helper.getFavoriteFolders(userPrincipal.getId());
+        List<Map<String, Object>> folders = userService.getFavoriteFolders(userPrincipal.getId());
         return ResponseEntity.ok(ApiResponse.success(folders));
     }
 
@@ -134,7 +122,7 @@ public class UserController {
         if (folderOpt.isEmpty() || !folderOpt.get().getUserId().equals(userPrincipal.getId())) {
             return ResponseEntity.status(404).body(ApiResponse.error("Folder not found"));
         }
-        helper.deleteFolderAndFavorites(userPrincipal.getId(), folderId);
+        userService.deleteFolderAndFavorites(userPrincipal.getId(), folderId);
         favoriteFolderRepository.deleteById(folderId);
         return ResponseEntity.ok(ApiResponse.success("Folder deleted", null));
     }
@@ -174,7 +162,7 @@ public class UserController {
         if (folderOpt.isEmpty() || !folderOpt.get().getUserId().equals(userPrincipal.getId())) {
             return ResponseEntity.status(404).body(ApiResponse.error("Folder not found"));
         }
-        return ResponseEntity.ok(ApiResponse.success(dtoMapper.toAnimeDtoList(helper.getFavoritesByFolder(userPrincipal.getId(), folderId))));
+        return ResponseEntity.ok(ApiResponse.success(dtoMapper.toAnimeDtoList(userService.getFavoritesByFolder(userPrincipal.getId(), folderId))));
     }
 
     @PostMapping("/favorites/folders/{folderId}/anime/{animeId}")
@@ -190,7 +178,7 @@ public class UserController {
         if (folderOpt.isEmpty() || !folderOpt.get().getUserId().equals(userPrincipal.getId())) {
             return ResponseEntity.status(404).body(ApiResponse.error("Folder not found"));
         }
-        helper.addFavoriteToFolder(userPrincipal.getId(), animeId, folderId);
+        userService.addFavoriteToFolder(userPrincipal.getId(), animeId, folderId);
         return ResponseEntity.ok(ApiResponse.success("Added to folder", null));
     }
 
@@ -203,7 +191,7 @@ public class UserController {
             return ResponseEntity.status(401).body(ApiResponse.error("Authentication required"));
         }
         UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
-        helper.removeFavoriteFromFolder(userPrincipal.getId(), animeId, folderId);
+        userService.removeFavoriteFromFolder(userPrincipal.getId(), animeId, folderId);
         return ResponseEntity.ok(ApiResponse.success("Removed from folder", null));
     }
 
@@ -213,7 +201,7 @@ public class UserController {
             return ResponseEntity.status(401).body(ApiResponse.error("Authentication required"));
         }
         UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
-        return ResponseEntity.ok(ApiResponse.success(dtoMapper.toAnimeDtoList(helper.getFavorites(userPrincipal.getId()))));
+        return ResponseEntity.ok(ApiResponse.success(dtoMapper.toAnimeDtoList(userService.getFavorites(userPrincipal.getId()))));
     }
 
     @DeleteMapping("/favorites/{animeId}")
@@ -224,7 +212,7 @@ public class UserController {
             return ResponseEntity.status(401).body(ApiResponse.error("Authentication required"));
         }
         UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
-        helper.removeFavorite(userPrincipal.getId(), animeId);
+        userService.removeFavorite(userPrincipal.getId(), animeId);
         return ResponseEntity.ok(ApiResponse.success("Removed from favorites", null));
     }
 
@@ -234,7 +222,7 @@ public class UserController {
             return ResponseEntity.status(401).body(ApiResponse.error("Authentication required"));
         }
         UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
-        return ResponseEntity.ok(ApiResponse.success(helper.getWatchHistory(userPrincipal.getId())));
+        return ResponseEntity.ok(ApiResponse.success(userService.getWatchHistory(userPrincipal.getId())));
     }
 
     @PostMapping("/watch-history/{animeId}")
@@ -249,7 +237,7 @@ public class UserController {
         }
         
         UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
-        helper.updateWatchProgress(userPrincipal.getId(), animeId, progress, completed);
+        userService.updateWatchProgress(userPrincipal.getId(), animeId, progress, completed);
         return ResponseEntity.ok(ApiResponse.success("Progress updated", null));
     }
 
@@ -263,7 +251,7 @@ public class UserController {
         }
         
         UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
-        return ResponseEntity.ok(ApiResponse.success(dtoMapper.toAnimeDtoList(helper.getRecommendations(userPrincipal.getId(), limit))));
+        return ResponseEntity.ok(ApiResponse.success(dtoMapper.toAnimeDtoList(userService.getRecommendations(userPrincipal.getId(), limit))));
     }
 
     @PutMapping("/signature")
@@ -344,134 +332,4 @@ public class UserController {
         }
     }
 
-    static class UserControllerHelper {
-        private final FavoriteRepository favoriteRepository;
-        private final WatchHistoryRepository watchHistoryRepository;
-        private final AnimeRepository animeRepository;
-        private final AnimeVideoRepository animeVideoRepository;
-        private final RecommendationService recommendationService;
-        private final DtoMapper dtoMapper;
-        private final FavoriteFolderRepository favoriteFolderRepository;
-
-        UserControllerHelper(FavoriteRepository favoriteRepository,
-                            WatchHistoryRepository watchHistoryRepository,
-                            AnimeRepository animeRepository,
-                            AnimeVideoRepository animeVideoRepository,
-                            RecommendationService recommendationService,
-                            DtoMapper dtoMapper,
-                            FavoriteFolderRepository favoriteFolderRepository) {
-            this.favoriteRepository = favoriteRepository;
-            this.watchHistoryRepository = watchHistoryRepository;
-            this.animeRepository = animeRepository;
-            this.animeVideoRepository = animeVideoRepository;
-            this.recommendationService = recommendationService;
-            this.dtoMapper = dtoMapper;
-            this.favoriteFolderRepository = favoriteFolderRepository;
-        }
-
-        List<Map<String, Object>> getFavoriteFolders(Long userId) {
-            List<FavoriteFolder> folders = favoriteFolderRepository.findByUserIdOrderBySortOrderAsc(userId);
-            return folders.stream()
-                    .map(folder -> {
-                        Map<String, Object> map = new HashMap<>();
-                        map.put("id", folder.getId());
-                        map.put("name", folder.getName());
-                        map.put("createdAt", folder.getCreatedAt());
-                        List<Anime> animes = getFavoritesByFolder(userId, folder.getId());
-                        map.put("count", animes.size());
-                        if (!animes.isEmpty()) {
-                            map.put("latestAnimeImage", animes.get(0).getImageUrl());
-                        }
-                        return map;
-                    })
-                    .collect(Collectors.toList());
-        }
-
-        List<Anime> getFavoritesByFolder(Long userId, Long folderId) {
-            List<Favorite> favorites = favoriteRepository.findByUserIdAndFolderIdOrderByCreatedAtDesc(userId, folderId);
-            return favorites.stream()
-                    .map(f -> animeRepository.findById(f.getAnimeId()).orElse(null))
-                    .filter(Objects::nonNull)
-                    .collect(Collectors.toList());
-        }
-
-        void addFavoriteToFolder(Long userId, Long animeId, Long folderId) {
-            if (favoriteRepository.existsByUserIdAndAnimeIdAndFolderId(userId, animeId, folderId)) {
-                return;
-            }
-            Favorite favorite = new Favorite();
-            favorite.setUserId(userId);
-            favorite.setAnimeId(animeId);
-            favorite.setFolderId(folderId);
-            favoriteRepository.save(favorite);
-        }
-
-        void removeFavoriteFromFolder(Long userId, Long animeId, Long folderId) {
-            favoriteRepository.findByUserIdAndAnimeIdAndFolderId(userId, animeId, folderId)
-                    .ifPresent(favoriteRepository::delete);
-        }
-
-        void deleteFolderAndFavorites(Long userId, Long folderId) {
-            List<Favorite> favorites = favoriteRepository.findByUserIdAndFolderIdOrderByCreatedAtDesc(userId, folderId);
-            favoriteRepository.deleteAll(favorites);
-        }
-
-        List<Anime> getFavorites(Long userId) {
-            List<Favorite> favorites = favoriteRepository.findByUserIdOrderByCreatedAtDesc(userId);
-            return favorites.stream()
-                    .map(f -> animeRepository.findById(f.getAnimeId()).orElse(null))
-                    .filter(Objects::nonNull)
-                    .collect(Collectors.toList());
-        }
-
-        void removeFavorite(Long userId, Long animeId) {
-            favoriteRepository.findByUserIdAndAnimeId(userId, animeId)
-                    .ifPresent(favoriteRepository::delete);
-        }
-
-        List<Map<String, Object>> getWatchHistory(Long userId) {
-            List<WatchHistory> history = watchHistoryRepository.findByUserIdOrderByUpdatedAtDesc(userId);
-            return history.stream()
-                    .map(h -> {
-                        Map<String, Object> map = new HashMap<>();
-                        animeRepository.findById(h.getAnimeId()).ifPresent(anime -> {
-                            map.put("anime", dtoMapper.toAnimeDto(anime));
-                            map.put("progress", h.getProgress());
-                            map.put("completed", h.getCompleted());
-                            map.put("updatedAt", h.getUpdatedAt());
-                            map.put("episodeNumber", h.getEpisodeNumber());
-
-                            int duration = 0;
-                            if (h.getEpisodeId() != null) {
-                                duration = animeVideoRepository.findById(h.getEpisodeId())
-                                        .map(v -> v.getDuration() != null ? v.getDuration() : 0)
-                                        .orElse(0);
-                            }
-                            int progressPercent = 0;
-                            if (h.getProgress() != null && duration > 0) {
-                                progressPercent = Math.min(h.getProgress() * 100 / duration, 100);
-                            }
-                            map.put("duration", duration);
-                            map.put("progressPercent", progressPercent);
-                        });
-                        return map;
-                    })
-                    .filter(m -> m.containsKey("anime"))
-                    .collect(Collectors.toList());
-        }
-
-        void updateWatchProgress(Long userId, Long animeId, int progress, boolean completed) {
-            Optional<WatchHistory> existing = watchHistoryRepository.findByUserIdAndAnimeId(userId, animeId);
-            WatchHistory history = existing.orElse(new WatchHistory());
-            history.setUserId(userId);
-            history.setAnimeId(animeId);
-            history.setProgress(progress);
-            history.setCompleted(completed);
-            watchHistoryRepository.save(history);
-        }
-
-        List<Anime> getRecommendations(Long userId, int limit) {
-            return recommendationService.getRecommendations(userId, limit);
-        }
-    }
 }

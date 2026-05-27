@@ -9,6 +9,7 @@ import java.util.Optional;
 
 @Repository
 public interface FavoriteRepository extends JpaRepository<Favorite, Long> {
+    List<Favorite> findByUserId(Long userId);
     List<Favorite> findByUserIdOrderByCreatedAtDesc(Long userId);
     List<Favorite> findByUserIdAndFolderIdOrderByCreatedAtDesc(Long userId, Long folderId);
     Optional<Favorite> findByUserIdAndAnimeIdAndFolderId(Long userId, Long animeId, Long folderId);

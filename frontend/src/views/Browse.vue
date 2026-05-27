@@ -7,7 +7,7 @@
         <div style="display: flex; flex-wrap: wrap; gap: 1rem;">
           <div class="filter-group">
             <label>类型</label>
-            <select v-model="filters.type" @change="fetchAnime" class="input">
+            <select v-model="filters.type" @change="handleTypeChange" class="input">
               <option value="">全部</option>
               <option v-for="t in filterOptions.types" :key="t" :value="t">{{ t }}</option>
             </select>
@@ -21,7 +21,7 @@
             </select>
           </div>
 
-          <div class="filter-group">
+          <div v-if="!filters.type || filters.type === 'TV动画'" class="filter-group">
             <label>季度</label>
             <select v-model="filters.season" @change="fetchAnime" class="input">
               <option value="">全部</option>
@@ -151,18 +151,18 @@ const fetchAnime = async () => {
       
       allAnime.value = allResults.slice(0, MAX_RESULTS)
     } else {
-      const params = {
-        limit: MAX_RESULTS,
-        offset: 0
-      }
-      if (filters.type) params.type = filters.type
-      if (filters.source) params.source = filters.source
-      if (filters.season) params.season = filters.season
-      if (filters.year) params.year = parseInt(filters.year)
-      if (filters.genre) params.genre = filters.genre
-      if (filters.status) params.status = filters.status
+        const params = {
+          limit: MAX_RESULTS,
+          offset: 0
+        }
+        if (filters.type) params.type = filters.type
+        if (filters.source) params.source = filters.source
+        if ((!filters.type || filters.type === 'TV动画') && filters.season) params.season = filters.season
+        if (filters.year) params.year = parseInt(filters.year)
+        if (filters.genre) params.genre = filters.genre
+        if (filters.status) params.status = filters.status
 
-      await animeStore.fetchAnimeList(params)
+        await animeStore.fetchAnimeList(params)
       allAnime.value = animeStore.animeList.slice(0, MAX_RESULTS)
     }
     
@@ -188,6 +188,13 @@ const nextPage = () => {
   }
 }
 
+const handleTypeChange = () => {
+  if (filters.type && filters.type !== 'TV动画') {
+    filters.season = ''
+  }
+  fetchAnime()
+}
+
 const clearFilters = async () => {
   filters.type = ''
   filters.source = ''
@@ -209,7 +216,11 @@ const fetchFilters = async () => {
 watch(() => route.query, (newQuery) => {
   if (newQuery.type) filters.type = newQuery.type
   if (newQuery.source) filters.source = newQuery.source
-  if (newQuery.season) filters.season = newQuery.season
+  if ((!newQuery.type || newQuery.type === 'TV动画') && newQuery.season) {
+    filters.season = newQuery.season
+  } else {
+    filters.season = ''
+  }
   if (newQuery.year) filters.year = newQuery.year
   if (newQuery.genre) filters.genre = newQuery.genre
   if (newQuery.status) filters.status = newQuery.status
@@ -225,7 +236,9 @@ onMounted(() => {
   if (route.query) {
     if (route.query.type) filters.type = route.query.type
     if (route.query.source) filters.source = route.query.source
-    if (route.query.season) filters.season = route.query.season
+    if ((!route.query.type || route.query.type === 'TV动画') && route.query.season) {
+      filters.season = route.query.season
+    }
     if (route.query.year) filters.year = route.query.year
     if (route.query.genre) filters.genre = route.query.genre
     if (route.query.status) filters.status = route.query.status

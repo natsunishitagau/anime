@@ -65,7 +65,7 @@
           <h2>观看历史</h2>
           <div v-if="watchHistory.length > 0" class="watch-history-list">
             <div class="history-item" v-for="item in watchHistory" :key="item.anime.id">
-              <router-link :to="`/anime/${item.anime.id}`" class="history-anime">
+              <router-link :to="`/watch/${item.episodeId}`" class="history-anime">
                 <img :src="item.anime.imageUrl || 'https://via.placeholder.com/80x120/1e293b/475569?text=?'" :alt="item.anime.title" />
                 <div class="history-info">
                   <div class="history-header">

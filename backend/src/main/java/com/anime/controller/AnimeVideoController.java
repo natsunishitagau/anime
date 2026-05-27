@@ -59,28 +59,4 @@ public class AnimeVideoController {
             return ResponseEntity.internalServerError().build();
         }
     }
-
-    @GetMapping("/thumbnail/{id}")
-    public ResponseEntity<Resource> getThumbnail(@PathVariable Long id) {
-        var optionalVideo = videoService.getVideoById(id);
-        if (optionalVideo.isEmpty()) {
-            return ResponseEntity.notFound().build();
-        }
-
-        AnimeVideo video = optionalVideo.get();
-        try {
-            Path filePath = Paths.get(video.getThumbnailPath());
-            Resource resource = new UrlResource(filePath.toUri());
-
-            if (resource.exists() && resource.isReadable()) {
-                return ResponseEntity.ok()
-                        .contentType(MediaType.IMAGE_JPEG)
-                        .body(resource);
-            } else {
-                return ResponseEntity.notFound().build();
-            }
-        } catch (MalformedURLException e) {
-            return ResponseEntity.internalServerError().build();
-        }
-    }
 }

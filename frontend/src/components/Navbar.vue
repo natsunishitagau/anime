@@ -1,30 +1,51 @@
 <template>
   <nav class="navbar">
     <div class="navbar-container">
-      <router-link to="/" class="logo">
-        <span class="logo-icon">🎬</span>
-        <span class="logo-text">AnimeHub</span>
-      </router-link>
-
-      <div class="search-box">
-        <input 
-          type="text" 
-          v-model="searchQuery" 
-          @keyup.enter="handleSearch"
-          placeholder="搜索番剧..."
-          class="search-input"
-        />
-        <button @click="handleSearch" class="search-btn">🔍</button>
+      <div class="navbar-brand">
+        <router-link to="/" class="logo">
+          <span class="logo-icon">🎬</span>
+          <span class="logo-text">AnimeHub</span>
+        </router-link>
       </div>
 
-      <div class="nav-links">
-        <router-link to="/" class="nav-link">首页</router-link>
-        <router-link to="/browse" class="nav-link">浏览</router-link>
-        <router-link v-if="isAuthenticated" to="/favorites" class="nav-link">收藏</router-link>
+      <div class="navbar-actions">
+        <router-link to="/" class="nav-link">
+          <span class="nav-icon">🏠</span>
+          <span class="nav-text">首页</span>
+        </router-link>
+        <router-link to="/browse" class="nav-link">
+          <span class="nav-icon">📺</span>
+          <span class="nav-text">浏览</span>
+        </router-link>
+        <router-link to="/game" class="nav-link">
+          <span class="nav-icon">🎮</span>
+          <span class="nav-text">游戏</span>
+        </router-link>
+        
+        <div class="search-box">
+          <input 
+            type="text" 
+            v-model="searchQuery" 
+            @keyup.enter="handleSearch"
+            placeholder="搜索番剧..."
+            class="search-input"
+          />
+          <button @click="handleSearch" class="search-btn">🔍</button>
+        </div>
       </div>
 
-      <div class="auth-links">
+      <div class="navbar-user">
         <template v-if="isAuthenticated">
+          <router-link to="/favorites" class="nav-link">
+            <span class="nav-icon">⭐</span>
+            <span class="nav-text">收藏</span>
+          </router-link>
+          <router-link to="/messages" class="nav-link message-link">
+            <span class="nav-icon">📩</span>
+            <span class="nav-text">消息</span>
+            <span v-if="unreadCount > 0" class="badge">{{ unreadCount > 99 ? '99+' : unreadCount }}</span>
+          </router-link>
+          
           <router-link to="/profile" class="nav-link user-link">
             <span class="user-avatar" :style="{ backgroundImage: `url(${user?.avatarUrl || '/src/assets/avatars/default.svg'})` }"></span>
             <span class="user-name">{{ user?.username }}</span>
@@ -33,7 +54,10 @@
         </template>
         
         <template v-else>
-          <router-link to="/login" class="nav-link">登录</router-link>
+          <router-link to="/login" class="nav-link">
+            <span class="nav-icon">🔑</span>
+            <span class="nav-text">登录</span>
+          </router-link>
           <router-link to="/register" class="btn btn-primary">注册</router-link>
         </template>
       </div>
@@ -46,6 +70,7 @@
     <div v-if="isMobileMenuOpen" class="mobile-menu">
       <router-link to="/" class="mobile-link" @click="isMobileMenuOpen = false">首页</router-link>
       <router-link to="/browse" class="mobile-link" @click="isMobileMenuOpen = false">浏览</router-link>
+      <router-link to="/game" class="mobile-link" @click="isMobileMenuOpen = false">游戏</router-link>
       
       <template v-if="isAuthenticated">
         <router-link to="/favorites" class="mobile-link" @click="isMobileMenuOpen = false">收藏</router-link>
@@ -62,18 +87,49 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import axios from '../utils/axios'
+import { eventBus, MESSAGE_EVENTS } from '../utils/eventBus'
 
 const router = useRouter()
 const authStore = useAuthStore()
 
 const searchQuery = ref('')
 const isMobileMenuOpen = ref(false)
+const unreadCount = ref(0)
 
 const isAuthenticated = computed(() => authStore.isAuthenticated)
 const user = computed(() => authStore.currentUser)
+
+const fetchUnreadCount = async () => {
+  if (!isAuthenticated.value) {
+    unreadCount.value = 0
+    return
+  }
+  try {
+    const response = await axios.get('/user/messages/unread/count')
+    if (response.data.success) {
+      unreadCount.value = response.data.data.count
+    }
+  } catch (error) {
+    console.error('Failed to fetch unread count:', error)
+  }
+}
+
+const handleUnreadCountChanged = () => {
+  fetchUnreadCount()
+}
+
+onMounted(() => {
+  fetchUnreadCount()
+  eventBus.on(MESSAGE_EVENTS.UNREAD_COUNT_CHANGED, handleUnreadCountChanged)
+})
+
+onUnmounted(() => {
+  eventBus.off(MESSAGE_EVENTS.UNREAD_COUNT_CHANGED, handleUnreadCountChanged)
+})
 
 const handleSearch = () => {
   if (searchQuery.value.trim()) {
@@ -108,7 +164,13 @@ const handleLogout = () => {
   height: 5rem;
   display: flex;
   align-items: center;
-  gap: 2rem;
+  justify-content: space-between;
+  gap: 1.5rem;
+}
+
+.navbar-brand {
+  display: flex;
+  align-items: center;
 }
 
 .logo {
@@ -132,21 +194,31 @@ const handleLogout = () => {
   background-clip: text;
 }
 
+.navbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.navbar-user {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+
 .search-box {
-  flex: 1;
-  max-width: 230px;
   display: flex;
   gap: 0.5rem;
 }
 
 .search-input {
-  flex: 1;
-  padding: 0.625rem 1rem;
+  padding: 0.5rem 1rem;
   background: var(--background-light);
   border: 1px solid var(--border-color);
   border-radius: 9999px;
   color: var(--text-primary);
   font-size: 0.875rem;
+  width: 180px;
 }
 
 .search-input:focus {
@@ -160,7 +232,7 @@ const handleLogout = () => {
   border: none;
   border-radius: 9999px;
   cursor: pointer;
-  font-size: 1.5rem;
+  font-size: 1.25rem;
   color: var(--text-secondary);
   transition: color 0.2s;
 }
@@ -169,20 +241,10 @@ const handleLogout = () => {
   color: var(--text-primary);
 }
 
-.nav-links {
-  display: flex;
-  align-items: center;
-  gap: 1.5rem;
-}
-
-.auth-links {
-  display: flex;
-  align-items: center;
-  gap: 1.5rem;
-  margin-left: auto;
-}
-
 .nav-link {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
   color: var(--text-secondary);
   text-decoration: none;
   font-weight: 500;
@@ -193,9 +255,32 @@ const handleLogout = () => {
   color: var(--text-primary);
 }
 
+.nav-icon {
+  font-size: 1.125rem;
+}
+
+.nav-text {
+  font-size: 1rem;
+}
+
+.message-link {
+  position: relative;
+}
+
+.badge {
+  position: absolute;
+  top: -0.375rem;
+  right: -0.5rem;
+  background: var(--error-color);
+  color: white;
+  font-size: 0.625rem;
+  padding: 0.125rem 0.375rem;
+  border-radius: 9999px;
+  min-width: 1rem;
+  text-align: center;
+}
+
 .user-link {
-  display: flex;
-  align-items: center;
   gap: 0.5rem;
 }
 
@@ -215,11 +300,12 @@ const handleLogout = () => {
 
 .user-name {
   color: var(--text-primary);
+  font-size: 1rem;
 }
 
 .logout-btn {
   padding: 0.5rem 1rem;
-  font-size: 0.875rem;
+  font-size: 1rem;
 }
 
 .mobile-menu-btn {
@@ -260,14 +346,13 @@ const handleLogout = () => {
   font-size: 1rem;
 }
 
-@media (max-width: 768px) {
-  .search-box, .nav-links {
+@media (max-width: 992px) {
+  .navbar-actions, .navbar-user {
     display: none;
   }
 
   .mobile-menu-btn {
     display: block;
-    margin-left: auto;
   }
 
   .mobile-menu {

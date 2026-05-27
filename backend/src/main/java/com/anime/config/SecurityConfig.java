@@ -42,6 +42,8 @@ public class SecurityConfig {
                 .requestMatchers("/api/watch-history/**").permitAll()
                 .requestMatchers("/api/stats/**").permitAll()
                 .requestMatchers("/api/admin/**").hasRole("ADMIN")
+                .requestMatchers("/api/user/messages/**").authenticated()
+                .requestMatchers("/api/user/**").authenticated()
                 .requestMatchers("/uploads/**").permitAll()
                 .anyRequest().authenticated()
             )

@@ -11,4 +11,8 @@ public interface ReviewRepository extends JpaRepository<Review, Long> {
     List<Review> findByAnimeIdOrderByCreatedAtDesc(Long animeId);
     List<Review> findRecentReviewsByAnimeId(Long animeId);
     List<Review> findByAnimeId(Long animeId);
+    
+    List<Review> findByAnimeIdAndIsDeletedFalseOrderByCreatedAtDesc(Long animeId);
+    List<Review> findByTopLevelIdAndIsDeletedFalseOrderByCreatedAtAsc(Long topLevelId);
+    List<Review> findByAnimeIdAndParentIdIsNullAndIsDeletedFalseOrderByCreatedAtDesc(Long animeId);
 }

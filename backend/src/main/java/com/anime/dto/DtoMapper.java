@@ -3,7 +3,6 @@ package com.anime.dto;
 import com.anime.entity.Anime;
 import com.anime.entity.Character;
 import com.anime.entity.Genre;
-import com.anime.entity.Review;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -69,12 +68,23 @@ public class DtoMapper {
 
     public CharacterDto toCharacterDto(Character character) {
         if (character == null) return null;
+        
+        String animeTitleJp = null;
+        String sql = "SELECT a.title_jp FROM anime a " +
+                     "JOIN anime_character ac ON a.id = ac.anime_id " +
+                     "WHERE ac.character_id = ? LIMIT 1";
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, character.getId());
+        if (!rows.isEmpty()) {
+            animeTitleJp = (String) rows.get(0).get("title_jp");
+        }
+        
         return new CharacterDto(
                 character.getId(),
                 character.getName(),
                 character.getNameJp(),
                 character.getImageUrl(),
-                character.getFavorites()
+                character.getFavorites(),
+                animeTitleJp
         );
     }
 
@@ -82,26 +92,6 @@ public class DtoMapper {
         if (characters == null) return List.of();
         return characters.stream()
                 .map(this::toCharacterDto)
-                .collect(Collectors.toList());
-    }
-
-    public ReviewDto toReviewDto(Review review, String avatarUrl) {
-        if (review == null) return null;
-        return new ReviewDto(
-                review.getId(),
-                review.getUserId(),
-                review.getUsername(),
-                avatarUrl,
-                review.getAnimeId(),
-                review.getComment(),
-                review.getCreatedAt() != null ? review.getCreatedAt().toString() : null
-        );
-    }
-
-    public List<ReviewDto> toReviewDtoList(List<Review> reviews) {
-        if (reviews == null) return List.of();
-        return reviews.stream()
-                .map(review -> toReviewDto(review, null))
                 .collect(Collectors.toList());
     }
 }
