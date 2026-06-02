@@ -113,10 +113,14 @@ export const useAnimeStore = defineStore('anime', {
             size
           }
         })
+        if (!response.data.success) {
+          throw new Error(response.data.message || 'Search failed')
+        }
         return response.data.data
       } catch (error) {
-        this.error = error.response?.data?.message || 'Search failed'
-        return { content: [], totalElements: 0, totalPages: 1, currentPage: 1, pageSize: size }
+        const errorMessage = error.response?.data?.message || error.message || 'Search failed'
+        this.error = errorMessage
+        throw error
       } finally {
         this.loading = false
       }

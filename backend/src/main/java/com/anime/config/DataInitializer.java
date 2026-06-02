@@ -55,7 +55,6 @@ public class DataInitializer {
                     video.setEpisodeNumber(i + 1);
                     video.setDuration(1440 + (int)(Math.random() * 600));
                     video.setVideoPath("uploads/videos/test_video_" + (i + 1) + ".mp4");
-                    video.setThumbnailPath("uploads/videos/thumbnail_" + (i + 1) + ".jpg");
                     videoRepository.save(video);
                     
                     System.out.println("Created video for anime " + testAnimeId + ": Episode " + (i + 1));

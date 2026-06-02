@@ -68,6 +68,11 @@ const routes = [
     path: '/game/character',
     name: 'CharacterGame',
     component: () => import('../views/CharacterGame.vue')
+  },
+  {
+    path: '/agent',
+    name: 'AgentChat',
+    component: () => import('../views/AgentChat.vue')
   }
 ]
 
@@ -79,7 +84,7 @@ const router = createRouter({
   }
 })
 
-const publicPaths = ['/', '/login', '/register', '/search', '/game', '/game/anime', '/game/character']
+const publicPaths = ['/', '/login', '/register']
 
 router.beforeEach((to, from, next) => {
   const token = localStorage.getItem('token')

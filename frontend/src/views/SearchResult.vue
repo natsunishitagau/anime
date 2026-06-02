@@ -3,11 +3,15 @@
     <div class="container">
       <div class="search-header">
         <h1>搜索结果</h1>
-        <p class="search-keyword">已显示搜索名称"{{ searchKeyword }}"的结果</p>
+        <p class="search-keyword" v-if="!errorMessage">已显示搜索名称"{{ searchKeyword }}"的结果</p>
       </div>
 
       <div v-if="loading" class="loading">
         <div class="spinner"></div>
+      </div>
+
+      <div v-else-if="errorMessage" class="error-state">
+        <p>{{ errorMessage }}</p>
       </div>
 
       <div v-else-if="totalElements === 0" class="empty-state">
@@ -58,24 +62,28 @@ const router = useRouter();
 const animeStore = useAnimeStore();
 const animeList = ref([]);
 const loading = ref(false);
+const errorMessage = ref('');
 const currentPage = ref(1);
 const totalPages = ref(1);
 const totalElements = ref(0);
 const pageSize = 20;
 const searchKeyword = computed(() => route.query.keyword || '');
 const fetchSearchResults = async () => {
- if (!searchKeyword.value)
- return;
- loading.value = true;
- try {
- const result = await animeStore.searchAnimePage(searchKeyword.value, currentPage.value, pageSize);
- animeList.value = result.content || [];
- totalPages.value = result.totalPages || 1;
- totalElements.value = result.totalElements || 0;
- }
- finally {
- loading.value = false;
- }
+  if (!searchKeyword.value)
+    return;
+  loading.value = true;
+  errorMessage.value = '';
+  try {
+    const result = await animeStore.searchAnimePage(searchKeyword.value, currentPage.value, pageSize);
+    animeList.value = result.content || [];
+    totalPages.value = result.totalPages || 1;
+    totalElements.value = result.totalElements || 0;
+  } catch (error) {
+    errorMessage.value = animeStore.error || error.message || '搜索失败';
+  }
+  finally {
+    loading.value = false;
+  }
 };
 const prevPage = () => {
  if (currentPage.value > 1) {
@@ -90,10 +98,11 @@ const nextPage = () => {
  }
 };
 watch(() => route.query.keyword, (newKeyword) => {
- if (newKeyword) {
- currentPage.value = 1;
- fetchSearchResults();
- }
+  if (newKeyword) {
+    errorMessage.value = '';
+    currentPage.value = 1;
+    fetchSearchResults();
+  }
 });
 onMounted(() => {
  if (searchKeyword.value) {
@@ -141,6 +150,16 @@ onMounted(() => {
 .empty-state {
   text-align: center;
   padding: 4rem 2rem;
+}
+
+.error-state {
+  text-align: center;
+  padding: 4rem 2rem;
+}
+
+.error-state p {
+  color: var(--error-color);
+  font-size: 1.1rem;
 }
 
 .empty-state p {

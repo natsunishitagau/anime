@@ -18,3 +18,27 @@ conversation_log/
 
 # Agent configuration
 AGENTS.md
+
+# Trae configuration
+.trae/
+
+# Python compiled files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Python virtual environments
+venv/
+.env/
+.venv/
+
+# Python dependency lock
+uv.lock
+
+# Qdrant storage
+qdrant_storage/
+
+# Vector database storage
+anime-agent/qdrant_storage/

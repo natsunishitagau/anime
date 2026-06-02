@@ -19,6 +19,7 @@ import com.anime.repository.*;
 import com.anime.service.AnimeCacheService;
 import com.anime.service.MessageService;
 import com.anime.service.RecommendationService;
+import com.anime.service.SensitiveWordFilter;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -48,13 +49,15 @@ public class AnimeController {
     private final DtoMapper dtoMapper;
     private final JdbcTemplate jdbcTemplate;
     private final MessageService messageService;
+    private final SensitiveWordFilter sensitiveWordFilter;
 
     public AnimeController(AnimeRepository animeRepository, CharacterRepository characterRepository,
                            AnimeCharacterRepository animeCharacterRepository, ReviewRepository reviewRepository,
                            ReviewLikeRepository reviewLikeRepository, FavoriteRepository favoriteRepository,
                            RatingRepository ratingRepository, GenreRepository genreRepository, UserRepository userRepository,
                            RecommendationService recommendationService, AnimeCacheService animeCacheService,
-                           DtoMapper dtoMapper, JdbcTemplate jdbcTemplate, MessageService messageService) {
+                           DtoMapper dtoMapper, JdbcTemplate jdbcTemplate, MessageService messageService,
+                           SensitiveWordFilter sensitiveWordFilter) {
         this.animeRepository = animeRepository;
         this.characterRepository = characterRepository;
         this.animeCharacterRepository = animeCharacterRepository;
@@ -69,6 +72,7 @@ public class AnimeController {
         this.dtoMapper = dtoMapper;
         this.jdbcTemplate = jdbcTemplate;
         this.messageService = messageService;
+        this.sensitiveWordFilter = sensitiveWordFilter;
     }
 
     @GetMapping
@@ -129,7 +133,7 @@ public class AnimeController {
     @GetMapping("/search")
     public ResponseEntity<ApiResponse<List<AnimeDto>>> searchAnime(@RequestParam String q) {
         if (q == null || q.length() < 2) {
-            return ResponseEntity.badRequest().body(ApiResponse.error("Search query must be at least 2 characters"));
+            return ResponseEntity.badRequest().body(ApiResponse.error("关键词不能少于2个字符"));
         }
 
         List<Anime> results = animeRepository.searchAnime(q);
@@ -147,7 +151,7 @@ public class AnimeController {
             @RequestParam(defaultValue = "20") int size) {
 
         if (keyword == null || keyword.length() < 2) {
-            return ResponseEntity.badRequest().body(ApiResponse.error("Search query must be at least 2 characters"));
+            return ResponseEntity.badRequest().body(ApiResponse.error("关键词不能少于2个字符"));
         }
 
         Pageable pageable = PageRequest.of(page - 1, size);
@@ -400,11 +404,13 @@ public class AnimeController {
         }
 
         UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
-        
+
+        String filteredComment = sensitiveWordFilter.filter(comment);
+
         Review review = new Review();
         review.setUserId(userPrincipal.getId());
         review.setAnimeId(id);
-        review.setComment(comment);
+        review.setComment(filteredComment);
         review.setUsername(userPrincipal.getUsername());
         
         if (parentId != null) {

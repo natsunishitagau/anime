@@ -10,7 +10,20 @@
           <input id="avatar-upload" type="file" accept="image/*" class="avatar-upload-input" @change="handleAvatarChange" />
         </div>
         <div class="user-info">
-          <h1>{{ user?.username }}</h1>
+          <h1 v-if="!editingUsername" class="username-text" @click="startEditUsername">
+            {{ user?.username }}
+          </h1>
+          <input
+            v-else
+            ref="usernameInputRef"
+            v-model="userUsername"
+            type="text"
+            class="username-input"
+            maxlength="30"
+            @blur="saveUsername"
+            @keyup.enter="saveUsername"
+            @keyup.escape="editingUsername = false; userUsername = user?.username || ''"
+          />
           <div class="signature-wrapper">
             <p v-if="!editingSignature" class="signature-text" @click="startEditSignature">
               {{ userSignature || '点击添加个性签名...' }}
@@ -112,6 +125,9 @@ const watchHistory = ref([])
 const userSignature = ref('')
 const editingSignature = ref(false)
 const signatureInputRef = ref(null)
+const userUsername = ref('')
+const editingUsername = ref(false)
+const usernameInputRef = ref(null)
 const avatarUrl = ref('')
 const defaultAvatarUrl = '/src/assets/avatars/default.svg'
 
@@ -170,6 +186,49 @@ const saveSignature = async () => {
   }
 }
 
+const startEditUsername = async () => {
+  userUsername.value = user.value?.username || ''
+  editingUsername.value = true
+  await nextTick()
+  usernameInputRef.value?.focus()
+  usernameInputRef.value?.select()
+}
+
+const saveUsername = async () => {
+  editingUsername.value = false
+  const newUsername = userUsername.value?.trim() || ''
+  if (!newUsername) {
+    $message.error('用户名不能为空')
+    return
+  }
+  if (newUsername === user.value?.username) {
+    return
+  }
+  try {
+    const response = await fetch('/api/user/username', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authStore.token}`
+      },
+      body: JSON.stringify({ username: newUsername })
+    })
+    const data = await response.json()
+    if (data.success) {
+      if (authStore.user) {
+        authStore.user.username = newUsername
+      }
+      $message.success('用户名修改成功')
+    } else {
+      $message.error(data.message || '修改失败')
+      userUsername.value = user.value?.username || ''
+    }
+  } catch (error) {
+    console.error('Failed to save username:', error)
+    $message.error('修改失败，请稍后重试')
+  }
+}
+
 const handleAvatarChange = async (event) => {
   const file = event.target.files[0]
   if (!file) return
@@ -212,6 +271,12 @@ const loadAvatar = () => {
 watch(() => user.value?.signature, (val) => {
   if (!editingSignature.value) {
     userSignature.value = val || ''
+  }
+}, { immediate: true })
+
+watch(() => user.value?.username, (val) => {
+  if (!editingUsername.value) {
+    userUsername.value = val || ''
   }
 }, { immediate: true })
 
@@ -344,6 +409,29 @@ onMounted(async () => {
   font-size: 1.5rem;
   font-weight: 700;
   margin-bottom: 0.25rem;
+}
+
+.username-text {
+  cursor: pointer;
+  transition: color 0.2s;
+  border-bottom: 1px dashed transparent;
+}
+
+.username-text:hover {
+  color: var(--primary-color);
+  border-bottom-color: var(--primary-color);
+}
+
+.username-input {
+  width: 35ch;
+  padding: 0.375rem 0.75rem;
+  background: var(--background-dark);
+  border: 1px solid var(--primary-color);
+  border-radius: 0.5rem;
+  color: var(--text-primary);
+  font-size: 1.5rem;
+  font-weight: 700;
+  outline: none;
 }
 
 .user-info p {

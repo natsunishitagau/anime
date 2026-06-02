@@ -7,6 +7,7 @@ import com.anime.dto.UserDto;
 import com.anime.entity.User;
 import com.anime.repository.UserRepository;
 import com.anime.security.JwtUtils;
+import com.anime.service.SensitiveWordFilter;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -22,15 +23,22 @@ public class AuthController {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtUtils jwtUtils;
+    private final SensitiveWordFilter sensitiveWordFilter;
 
-    public AuthController(UserRepository userRepository, PasswordEncoder passwordEncoder, JwtUtils jwtUtils) {
+    public AuthController(UserRepository userRepository, PasswordEncoder passwordEncoder, JwtUtils jwtUtils, SensitiveWordFilter sensitiveWordFilter) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtUtils = jwtUtils;
+        this.sensitiveWordFilter = sensitiveWordFilter;
     }
 
     @PostMapping("/register")
     public ResponseEntity<ApiResponse<UserDto>> register(@Valid @RequestBody RegisterRequest request) {
+        if (!sensitiveWordFilter.validate(request.getUsername())) {
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error("存在违规字符"));
+        }
+
         if (userRepository.existsByUsername(request.getUsername())) {
             return ResponseEntity.badRequest()
                     .body(ApiResponse.error("Username already taken"));

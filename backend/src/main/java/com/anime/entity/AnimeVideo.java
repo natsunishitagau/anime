@@ -31,9 +31,6 @@ public class AnimeVideo {
     @Column(name = "video_path", nullable = false)
     private String videoPath;
 
-    @Column(name = "thumbnail_path")
-    private String thumbnailPath;
-
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 

@@ -9,6 +9,7 @@ import com.anime.entity.FavoriteFolder;
 import com.anime.entity.User;
 import com.anime.repository.FavoriteFolderRepository;
 import com.anime.repository.UserRepository;
+import com.anime.service.SensitiveWordFilter;
 import com.anime.service.UserService;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -34,15 +35,18 @@ public class UserController {
     private final UserRepository userRepository;
     private final DtoMapper dtoMapper;
     private final FavoriteFolderRepository favoriteFolderRepository;
+    private final SensitiveWordFilter sensitiveWordFilter;
 
     public UserController(UserService userService,
                           UserRepository userRepository,
                           DtoMapper dtoMapper,
-                          FavoriteFolderRepository favoriteFolderRepository) {
+                          FavoriteFolderRepository favoriteFolderRepository,
+                          SensitiveWordFilter sensitiveWordFilter) {
         this.userService = userService;
         this.userRepository = userRepository;
         this.dtoMapper = dtoMapper;
         this.favoriteFolderRepository = favoriteFolderRepository;
+        this.sensitiveWordFilter = sensitiveWordFilter;
     }
 
     @GetMapping("/favorites/folders")
@@ -254,6 +258,44 @@ public class UserController {
         return ResponseEntity.ok(ApiResponse.success(dtoMapper.toAnimeDtoList(userService.getRecommendations(userPrincipal.getId(), limit))));
     }
 
+    @PutMapping("/username")
+    public ResponseEntity<ApiResponse<Void>> updateUsername(
+            @RequestBody Map<String, String> body,
+            Authentication authentication) {
+        if (authentication == null) {
+            return ResponseEntity.status(401).body(ApiResponse.error("Authentication required"));
+        }
+
+        String username = body.get("username");
+        if (username == null || username.trim().isEmpty()) {
+            return ResponseEntity.badRequest().body(ApiResponse.error("Username is required"));
+        }
+
+        String trimmedUsername = username.trim();
+        if (trimmedUsername.length() < 3 || trimmedUsername.length() > 30) {
+            return ResponseEntity.badRequest().body(ApiResponse.error("Username must be 3-30 characters"));
+        }
+
+        if (!sensitiveWordFilter.validate(trimmedUsername)) {
+            return ResponseEntity.badRequest().body(ApiResponse.error("存在违规字符"));
+        }
+
+        UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
+        User user = userRepository.findById(userPrincipal.getId()).orElse(null);
+        if (user == null) {
+            return ResponseEntity.status(404).body(ApiResponse.error("User not found"));
+        }
+
+        if (userRepository.existsByUsername(trimmedUsername)) {
+            return ResponseEntity.badRequest().body(ApiResponse.error("该用户名已被注册"));
+        }
+
+        user.setUsername(trimmedUsername);
+        userRepository.save(user);
+
+        return ResponseEntity.ok(ApiResponse.success("Username updated", null));
+    }
+
     @PutMapping("/signature")
     public ResponseEntity<ApiResponse<Void>> updateSignature(
             @RequestBody Map<String, String> body,
@@ -267,9 +309,11 @@ public class UserController {
             return ResponseEntity.badRequest().body(ApiResponse.error("Signature must be within 100 characters"));
         }
 
+        String filteredSignature = sensitiveWordFilter.filter(signature);
+
         UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
         userRepository.findById(userPrincipal.getId()).ifPresent(user -> {
-            user.setSignature(signature);
+            user.setSignature(filteredSignature);
             userRepository.save(user);
         });
 

@@ -36,6 +36,10 @@
 
       <div class="navbar-user">
         <template v-if="isAuthenticated">
+          <router-link to="/agent" class="nav-link">
+            <span class="nav-icon">🤖</span>
+            <span class="nav-text">智能助手</span>
+          </router-link>
           <router-link to="/favorites" class="nav-link">
             <span class="nav-icon">⭐</span>
             <span class="nav-text">收藏</span>
@@ -55,7 +59,7 @@
         
         <template v-else>
           <router-link to="/login" class="nav-link">
-            <span class="nav-icon">🔑</span>
+            <span class="nav-icon">👤</span>
             <span class="nav-text">登录</span>
           </router-link>
           <router-link to="/register" class="btn btn-primary">注册</router-link>
@@ -71,6 +75,7 @@
       <router-link to="/" class="mobile-link" @click="isMobileMenuOpen = false">首页</router-link>
       <router-link to="/browse" class="mobile-link" @click="isMobileMenuOpen = false">浏览</router-link>
       <router-link to="/game" class="mobile-link" @click="isMobileMenuOpen = false">游戏</router-link>
+      <router-link to="/agent" class="mobile-link" @click="isMobileMenuOpen = false">智能助手</router-link>
       
       <template v-if="isAuthenticated">
         <router-link to="/favorites" class="mobile-link" @click="isMobileMenuOpen = false">收藏</router-link>
