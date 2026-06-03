@@ -1,11 +1,11 @@
 package com.anime.controller;
 
-import com.anime.dto.ApiResponse;
 import com.anime.dto.AnimeCharacterDto;
 import com.anime.dto.AnimeDto;
 import com.anime.dto.DtoMapper;
 import com.anime.dto.ReviewDto;
 import com.anime.dto.UserPrincipal;
+import com.anime.dto.response.ApiResponse;
 import com.anime.entity.Anime;
 import com.anime.entity.Character;
 import com.anime.entity.AnimeCharacter;
@@ -19,7 +19,8 @@ import com.anime.repository.*;
 import com.anime.service.AnimeCacheService;
 import com.anime.service.MessageService;
 import com.anime.service.RecommendationService;
-import com.anime.service.SensitiveWordFilter;
+import com.anime.util.SensitiveWordFilter;
+
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;

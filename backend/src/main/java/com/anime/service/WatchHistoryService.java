@@ -23,10 +23,7 @@ public class WatchHistoryService {
             
             if (episodeId != null && episodeId.equals(watchHistory.getEpisodeId())) {
                 if (progress != null) {
-                    Integer currentProgress = watchHistory.getProgress();
-                    if (currentProgress == null || progress > currentProgress) {
-                        watchHistory.setProgress(progress);
-                    }
+                    watchHistory.setProgress(progress);
                 }
                 if (completed != null) {
                     watchHistory.setCompleted(completed);

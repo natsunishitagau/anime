@@ -59,6 +59,7 @@
         <p>{{ activeTab === 'unread' ? '暂无未读消息' : '暂无消息' }}</p>
       </div>
     </div>
+    <ConfirmDialog ref="confirmDialogRef" />
   </div>
 </template>
 
@@ -67,9 +68,11 @@ import { ref, computed, onMounted } from 'vue'
 import axios from '../utils/axios'
 import { $message } from '../utils/message'
 import { eventBus, MESSAGE_EVENTS } from '../utils/eventBus'
+import ConfirmDialog from '../components/ConfirmDialog.vue'
 
 const messages = ref([])
 const activeTab = ref('all')
+const confirmDialogRef = ref(null)
 
 const filteredMessages = computed(() => {
   if (activeTab.value === 'unread') {
@@ -81,7 +84,6 @@ const filteredMessages = computed(() => {
 const fetchMessages = async () => {
   try {
     const response = await axios.get('/user/messages')
-    console.log('Messages response:', response)
     if (response.data && response.data.success) {
       messages.value = response.data.data
     }
@@ -115,7 +117,8 @@ const markAllAsRead = async () => {
 }
 
 const deleteMessage = async (messageId) => {
-  if (!confirm('确定要删除这条消息吗？')) return
+  const confirmed = await confirmDialogRef.value.show('确定要删除这条消息吗？')
+  if (!confirmed) return
   try {
     await axios.delete(`/user/messages/${messageId}`)
     messages.value = messages.value.filter(m => m.id !== messageId)

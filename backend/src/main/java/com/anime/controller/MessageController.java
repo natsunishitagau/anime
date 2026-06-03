@@ -1,8 +1,8 @@
 package com.anime.controller;
 
-import com.anime.dto.ApiResponse;
 import com.anime.dto.MessageDto;
 import com.anime.dto.UserPrincipal;
+import com.anime.dto.response.ApiResponse;
 import com.anime.service.MessageService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;

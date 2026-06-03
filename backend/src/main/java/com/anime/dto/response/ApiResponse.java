@@ -1,4 +1,4 @@
-package com.anime.dto;
+package com.anime.dto.response;
 
 import lombok.Data;
 import lombok.NoArgsConstructor;

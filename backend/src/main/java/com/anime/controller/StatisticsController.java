@@ -1,6 +1,6 @@
 package com.anime.controller;
 
-import com.anime.dto.ApiResponse;
+import com.anime.dto.response.ApiResponse;
 import com.anime.service.StatisticsService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;

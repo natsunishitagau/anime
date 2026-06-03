@@ -1,4 +1,4 @@
-package com.anime.dto;
+package com.anime.dto.request;
 
 import java.util.List;
 

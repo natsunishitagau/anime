@@ -8,18 +8,68 @@
         <h1>{{ video.title }}</h1>
       </div>
 
-      <div class="video-wrapper">
+      <div class="video-wrapper" ref="videoWrapperRef" @mouseenter="showVideoControls" @mousemove="showVideoControls" @mouseleave="hideVideoControls">
         <video
           ref="videoElement"
           class="video-player"
-          controls
-          controlsList="nodownload"
           @timeupdate="handleTimeUpdate"
           @loadedmetadata="handleLoadedMetadata"
           @pause="handlePause"
+          @play="handlePlay"
+          @volumechange="handleVolumeChange"
+          @progress="handleProgress"
         >
           <source :src="videoUrl" type="video/mp4" />
         </video>
+        <canvas v-show="danmakuEnabled"
+          ref="danmakuCanvasRef"
+          class="danmaku-canvas"
+        ></canvas>
+        <VideoControls
+          :currentTime="currentTime"
+          :duration="duration"
+          :volume="volume"
+          :isMuted="isMuted"
+          :isPlaying="isPlaying"
+          :isFullscreen="isFullscreen"
+          :buffered="buffered"
+          :isVisible="controlsVisible"
+          @play-pause="togglePlayPause"
+          @seek="handleSeek"
+          @volume-change="setVolume"
+          @mute-toggle="toggleMute"
+          @toggle-fullscreen="toggleFullscreen"
+          @skip-forward="skipForward"
+          @skip-backward="skipBackward"
+        />
+      </div>
+
+      <div class="danmaku-controls">
+        <div class="danmaku-bar">
+          <button
+            class="danmaku-toggle-btn"
+            :class="{ active: danmakuEnabled }"
+            @click="toggleDanmaku"
+          >
+            {{ danmakuEnabled ? '弹幕 ON' : '弹幕 OFF' }}
+          </button>
+          <span class="danmaku-count" v-if="danmakuCount > 0">{{ danmakuCount }}条弹幕</span>
+          <div class="danmaku-color-picker">
+            <label class="color-label">颜色</label>
+            <input type="color" v-model="danmakuColor" class="color-input" @input="onDanmakuColorChange" />
+          </div>
+          <input
+            v-model="danmakuInput"
+            class="danmaku-input"
+            placeholder="发送弹幕，Enter发送"
+            maxlength="50"
+            :disabled="!danmakuEnabled"
+            @keyup.enter="sendDanmaku"
+          />
+          <button class="danmaku-send-btn" @click="sendDanmaku" :disabled="!danmakuEnabled || !danmakuInput.trim()">
+            发送
+          </button>
+        </div>
       </div>
 
       <div class="episode-list">
@@ -56,6 +106,9 @@
 import { ref, computed, onMounted, watch, nextTick, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import axios from '../utils/axios'
+import { useDanmakuEngine } from '../composables/useDanmakuEngine'
+import { useDanmakuWebSocket } from '../composables/useDanmakuWebSocket'
+import VideoControls from '../components/VideoControls.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -69,6 +122,15 @@ const videoElement = ref(null)
 const savedProgress = ref(0)
 const lastSavedTime = ref(0)
 const lastWatchedEpisodeId = ref(null)
+const isPaused = ref(true)
+
+const danmakuInput = ref('')
+const danmakuColor = ref('#FFFFFF')
+const danmakuEnabled = ref(true)
+const danmakuCanvasRef = ref(null)
+const videoWrapperRef = ref(null)
+const videoIdRef = computed(() => video.value?.id || null)
+const wsConnected = ref(false)
 
 const USER_ID = 1
 
@@ -76,6 +138,50 @@ const videoUrl = computed(() => {
   if (!video.value) return ''
   return `/api/videos/stream/${video.value.id}`
 })
+
+const volume = ref(0.4)
+const isMuted = ref(false)
+const isPlaying = ref(false)
+const isFullscreen = ref(false)
+const buffered = ref([])
+const controlsVisible = ref(true)
+let controlsHideTimeout = null
+
+const {
+  danmakuCount,
+  init: initEngine,
+  enable: enableDanmaku,
+  disable: disableDanmaku,
+  toggle,
+  setDanmakuCount,
+  handleTimeUpdate: engineHandleTimeUpdate,
+  handleResize,
+  handleVisibilityChange,
+  receiveRealtimeDanmaku,
+  handleDanmakuDelete,
+  removeDanmaku,
+  startRendering,
+  destroy: destroyEngine
+} = useDanmakuEngine(videoElement, videoIdRef, currentTime, isPaused)
+
+const {
+  isConnected,
+  connect: connectWS,
+  disconnect: disconnectWS
+} = useDanmakuWebSocket(videoIdRef, receiveRealtimeDanmaku, handleDanmakuDelete)
+
+let lastDanmakuTimeUpdate = 0
+const DANMAKU_TIME_THROTTLE = 150
+
+const loadDanmakuCount = async () => {
+  if (!video.value) return
+  try {
+    const res = await axios.get(`/danmaku/video/${video.value.id}/count`)
+    setDanmakuCount(res.data.data.count || 0)
+  } catch (error) {
+    console.error('Failed to load danmaku count:', error)
+  }
+}
 
 const fetchVideo = async (videoId) => {
   loading.value = true
@@ -87,16 +193,67 @@ const fetchVideo = async (videoId) => {
     await nextTick(() => {
       if (videoElement.value) {
         videoElement.value.load()
+        if (danmakuCanvasRef.value && videoWrapperRef.value) {
+          initEngine(danmakuCanvasRef.value, videoWrapperRef.value)
+          startRendering()
+        }
         if (savedProgress.value > 0 && lastWatchedEpisodeId.value === video.value.id) {
           videoElement.value.currentTime = savedProgress.value
         }
       }
     })
+    connectWS()
+    loadDanmakuCount()
+    loadUserSettings()
   } catch (error) {
     console.error('Failed to fetch video:', error)
   } finally {
     loading.value = false
   }
+}
+
+const loadUserSettings = async () => {
+  try {
+    const res = await axios.get('/user-settings')
+    const settings = res.data
+    if (settings) {
+      if (settings.danmakuEnabled !== undefined) {
+        danmakuEnabled.value = settings.danmakuEnabled
+        if (danmakuEnabled.value) {
+          enableDanmaku()
+        } else {
+          disableDanmaku()
+        }
+      }
+      if (settings.danmakuColor) {
+        danmakuColor.value = settings.danmakuColor
+      }
+      if (settings.defaultVolume !== undefined) {
+        volume.value = settings.defaultVolume
+        setVolume(settings.defaultVolume)
+      }
+    }
+  } catch (error) {
+    console.error('Failed to load user settings:', error)
+  }
+}
+
+const saveUserSettings = async (settings) => {
+  try {
+    await axios.put('/user-settings', settings)
+  } catch (error) {
+    console.error('Failed to save user settings:', error)
+  }
+}
+
+let settingsSaveTimeout = null
+const debounceSaveSettings = (settings) => {
+  if (settingsSaveTimeout) {
+    clearTimeout(settingsSaveTimeout)
+  }
+  settingsSaveTimeout = setTimeout(() => {
+    saveUserSettings(settings)
+  }, 500)
 }
 
 const fetchEpisodes = async (animeId) => {
@@ -155,6 +312,11 @@ const handleTimeUpdate = () => {
       saveWatchHistory(currentTime.value, false)
       lastSavedTime.value = now
     }
+
+    if (now - lastDanmakuTimeUpdate > DANMAKU_TIME_THROTTLE) {
+      lastDanmakuTimeUpdate = now
+      engineHandleTimeUpdate()
+    }
   }
 }
 
@@ -165,9 +327,165 @@ const handleLoadedMetadata = () => {
 }
 
 const handlePause = () => {
+  isPaused.value = true
+  isPlaying.value = false
   if (videoElement.value) {
     saveWatchHistory(videoElement.value.currentTime, false)
   }
+}
+
+const handlePlay = () => {
+  isPaused.value = false
+  isPlaying.value = true
+}
+
+const handleVolumeChange = () => {
+  if (videoElement.value) {
+    volume.value = videoElement.value.volume
+    isMuted.value = videoElement.value.muted
+  }
+}
+
+const handleProgress = () => {
+  if (videoElement.value && videoElement.value.buffered.length > 0) {
+    const bufferedRanges = []
+    for (let i = 0; i < videoElement.value.buffered.length; i++) {
+      bufferedRanges.push({
+        start: videoElement.value.buffered.start(i),
+        end: videoElement.value.buffered.end(i)
+      })
+    }
+    buffered.value = bufferedRanges
+  }
+}
+
+const togglePlayPause = () => {
+  if (videoElement.value) {
+    if (videoElement.value.paused) {
+      videoElement.value.play()
+    } else {
+      videoElement.value.pause()
+    }
+  }
+}
+
+const handleSeek = (time) => {
+  if (videoElement.value) {
+    videoElement.value.currentTime = time
+  }
+}
+
+const setVolume = (newVolume) => {
+  if (videoElement.value) {
+    videoElement.value.volume = newVolume
+    volume.value = newVolume
+    if (newVolume > 0 && isMuted.value) {
+      videoElement.value.muted = false
+      isMuted.value = false
+    }
+    debounceSaveSettings({ defaultVolume: newVolume })
+  }
+}
+
+const toggleMute = () => {
+  if (videoElement.value) {
+    videoElement.value.muted = !videoElement.value.muted
+    isMuted.value = videoElement.value.muted
+  }
+}
+
+const toggleFullscreen = async () => {
+  if (!videoWrapperRef.value) return
+  
+  try {
+    if (!document.fullscreenElement) {
+      await videoWrapperRef.value.requestFullscreen()
+      isFullscreen.value = true
+    } else {
+      await document.exitFullscreen()
+      isFullscreen.value = false
+    }
+  } catch (error) {
+    console.error('Fullscreen error:', error)
+  }
+}
+
+const skipForward = () => {
+  if (videoElement.value) {
+    videoElement.value.currentTime = Math.min(videoElement.value.duration, videoElement.value.currentTime + 10)
+  }
+}
+
+const skipBackward = () => {
+  if (videoElement.value) {
+    videoElement.value.currentTime = Math.max(0, videoElement.value.currentTime - 10)
+  }
+}
+
+const showVideoControls = () => {
+  controlsVisible.value = true
+  if (controlsHideTimeout) {
+    clearTimeout(controlsHideTimeout)
+  }
+  if (isPlaying.value) {
+    controlsHideTimeout = setTimeout(() => {
+      controlsVisible.value = false
+    }, 3000)
+  }
+}
+
+const hideVideoControls = () => {
+  if (isPlaying.value) {
+    if (controlsHideTimeout) {
+      clearTimeout(controlsHideTimeout)
+    }
+    controlsHideTimeout = setTimeout(() => {
+      controlsVisible.value = false
+    }, 500)
+  }
+}
+
+const sendDanmaku = async () => {
+  if (!danmakuEnabled.value) return
+  
+  const content = danmakuInput.value.trim()
+  if (!content || !video.value) return
+
+  const localDanmaku = {
+    id: Date.now(),
+    videoId: video.value.id,
+    content: content,
+    time: Math.floor(currentTime.value * 1000) / 1000,
+    color: danmakuColor.value,
+    fontSize: 25,
+    isOwn: true
+  }
+
+  try {
+    // receiveRealtimeDanmaku(localDanmaku)
+    await axios.post('/danmaku', {
+      videoId: video.value.id,
+      content: content,
+      time: Math.floor(currentTime.value * 1000) / 1000,
+      color: danmakuColor.value,
+      fontSize: 25
+    })
+    danmakuInput.value = ''
+  } catch (error) {
+    console.error('Failed to send danmaku:', error)
+    danmakuInput.value = ''
+    removeDanmaku(localDanmaku.id)
+  }
+}
+
+const toggleDanmaku = () => {
+  const enabled = toggle()
+  danmakuEnabled.value = enabled
+  debounceSaveSettings({ danmakuEnabled: enabled })
+}
+
+const onDanmakuColorChange = (e) => {
+  debounceSaveSettings({ danmakuColor: e.target.value })
 }
 
 const formatTime = (seconds) => {
@@ -188,23 +506,59 @@ const goBack = () => {
   }
 }
 
+let resizeObserver = null
+
+const handleFullscreenChange = () => {
+  isFullscreen.value = !!document.fullscreenElement
+}
+
 onMounted(() => {
   const videoId = route.params.id
   if (videoId) {
     fetchVideo(videoId)
   }
+
+  document.addEventListener('visibilitychange', () => handleVisibilityChange(handleTimeUpdate))
+  window.addEventListener('resize', handleResize)
+  document.addEventListener('fullscreenchange', handleFullscreenChange)
+
+  if (videoWrapperRef.value) {
+    resizeObserver = new ResizeObserver(() => {
+      handleResize()
+    })
+    resizeObserver.observe(videoWrapperRef.value)
+  }
 })
 
 onUnmounted(() => {
+  disconnectWS()
+  destroyEngine()
   if (videoElement.value) {
     saveWatchHistory(videoElement.value.currentTime, false)
   }
+  document.removeEventListener('visibilitychange', () => handleVisibilityChange(handleTimeUpdate))
+  window.removeEventListener('resize', handleResize)
+  document.removeEventListener('fullscreenchange', handleFullscreenChange)
+  if (resizeObserver) {
+    resizeObserver.disconnect()
+    resizeObserver = null
+  }
+  if (controlsHideTimeout) {
+    clearTimeout(controlsHideTimeout)
+    controlsHideTimeout = null
+  }
+})
+
+watch(isConnected, (val) => {
+  wsConnected.value = val
 })
 
 watch(() => route.params.id, (newId) => {
   if (newId) {
     savedProgress.value = 0
     lastWatchedEpisodeId.value = null
+    disconnectWS()
+    destroyEngine()
     fetchVideo(newId)
   }
 })
@@ -219,6 +573,7 @@ watch(() => route.params.id, (newId) => {
 
 .video-container {
   max-width: 1400px;
+  min-width: 1000px;
   margin: 0 auto;
   padding: 0 1.5rem;
 }
@@ -257,12 +612,31 @@ watch(() => route.params.id, (newId) => {
   border-radius: 1rem;
   overflow: hidden;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  position: relative;
 }
 
 .video-player {
   width: 100%;
   height: 62vh;
   display: block;
+}
+
+.video-wrapper:fullscreen .video-player {
+  height: 100vh;
+}
+
+.video-wrapper:-webkit-full-screen .video-player {
+  height: 100vh;
+}
+
+.danmaku-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 5;
 }
 
 .video-player::-webkit-media-controlsclosed-caption {
@@ -369,6 +743,125 @@ watch(() => route.params.id, (newId) => {
 .btn-primary {
   background: var(--primary-color);
   color: #fff;
+}
+
+.danmaku-controls {
+  margin-top: 0.75rem;
+}
+
+.danmaku-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 0.9rem;
+  background: var(--surface-color, #1e1e2e);
+  border-radius: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.danmaku-toggle-btn {
+  width: 80px;
+  padding: 0.35rem 0.75rem;
+  border: 1px solid var(--border-color, #444);
+  border-radius: 0.5rem;
+  background: transparent;
+  color: var(--text-secondary, #888);
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: all 0.2s;
+}
+
+.danmaku-toggle-btn:hover {
+  border-color: var(--primary-color, #6366f1);
+  color: var(--primary-color, #6366f1);
+}
+
+.danmaku-toggle-btn.active {
+  background: rgba(99, 102, 241, 0.15);
+  border-color: var(--primary-color, #6366f1);
+  color: var(--primary-color, #6366f1);
+}
+
+.danmaku-count {
+  font-size: 0.75rem;
+  color: var(--text-muted, #666);
+  white-space: nowrap;
+}
+
+.danmaku-online {
+  font-size: 0.75rem;
+  color: var(--text-muted, #666);
+  white-space: nowrap;
+}
+
+.danmaku-online.connected {
+  color: #22c55e;
+}
+
+.danmaku-color-picker {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.color-label {
+  font-size: 0.75rem;
+  color: var(--text-secondary, #888);
+}
+
+.color-input {
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border-color, #444);
+  border-radius: 4px;
+  cursor: pointer;
+  padding: 1px;
+  background: transparent;
+}
+
+.danmaku-input {
+  flex: 1;
+  min-width: 120px;
+  padding: 0.35rem 0.75rem;
+  background: var(--background-dark, #111);
+  border: 1px solid var(--border-color, #444);
+  border-radius: 0.5rem;
+  color: var(--text-primary, #fff);
+  font-size: 0.85rem;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.danmaku-input:focus {
+  border-color: var(--primary-color, #6366f1);
+}
+
+.danmaku-input::placeholder {
+  color: var(--text-muted, #555);
+}
+
+.danmaku-send-btn {
+  padding: 0.35rem 1rem;
+  background: var(--primary-color, #6366f1);
+  border: none;
+  border-radius: 0.5rem;
+  color: #fff;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: background 0.2s;
+}
+
+.danmaku-send-btn:hover {
+  background: #5558e6;
+}
+
+.danmaku-send-btn:disabled {
+  background: #444;
+  cursor: not-allowed;
 }
 
 </style>

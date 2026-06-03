@@ -1,4 +1,6 @@
-package com.anime.dto;
+package com.anime.dto.response;
+
+import com.anime.dto.UserDto;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;

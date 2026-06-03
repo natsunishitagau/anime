@@ -1,13 +1,15 @@
 package com.anime.controller;
 
-import com.anime.dto.ApiResponse;
-import com.anime.dto.LoginRequest;
-import com.anime.dto.RegisterRequest;
 import com.anime.dto.UserDto;
+import com.anime.dto.request.LoginRequest;
+import com.anime.dto.request.RegisterRequest;
+import com.anime.dto.response.ApiResponse;
 import com.anime.entity.User;
 import com.anime.repository.UserRepository;
 import com.anime.security.JwtUtils;
-import com.anime.service.SensitiveWordFilter;
+import com.anime.service.UserSettingsService;
+import com.anime.util.SensitiveWordFilter;
+
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -24,12 +26,15 @@ public class AuthController {
     private final PasswordEncoder passwordEncoder;
     private final JwtUtils jwtUtils;
     private final SensitiveWordFilter sensitiveWordFilter;
+    private final UserSettingsService userSettingsService;
 
-    public AuthController(UserRepository userRepository, PasswordEncoder passwordEncoder, JwtUtils jwtUtils, SensitiveWordFilter sensitiveWordFilter) {
+    public AuthController(UserRepository userRepository, PasswordEncoder passwordEncoder, JwtUtils jwtUtils, 
+                         SensitiveWordFilter sensitiveWordFilter, UserSettingsService userSettingsService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtUtils = jwtUtils;
         this.sensitiveWordFilter = sensitiveWordFilter;
+        this.userSettingsService = userSettingsService;
     }
 
     @PostMapping("/register")
@@ -66,6 +71,8 @@ public class AuthController {
         user.setAvatarUrl("/src/assets/avatars/default.svg");
 
         User savedUser = userRepository.save(user);
+
+        userSettingsService.createSettingsForUser(savedUser.getId());
 
         UserDto userDto = new UserDto(savedUser.getId(), savedUser.getUsername(), savedUser.getEmail(), savedUser.getSignature(), savedUser.getAvatarUrl(), savedUser.getRole());
         return ResponseEntity.status(HttpStatus.CREATED)

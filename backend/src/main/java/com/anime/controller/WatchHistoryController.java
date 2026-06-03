@@ -1,7 +1,7 @@
 package com.anime.controller;
 
-import com.anime.dto.ApiResponse;
 import com.anime.dto.WatchHistoryDto;
+import com.anime.dto.response.ApiResponse;
 import com.anime.entity.WatchHistory;
 import com.anime.service.WatchHistoryService;
 import org.springframework.beans.factory.annotation.Autowired;

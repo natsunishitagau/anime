@@ -1,16 +1,17 @@
 package com.anime.controller;
 
-import com.anime.dto.ApiResponse;
 import com.anime.dto.AnimeDto;
 import com.anime.dto.DtoMapper;
-import com.anime.dto.FolderReorderRequest;
 import com.anime.dto.UserPrincipal;
+import com.anime.dto.request.FolderReorderRequest;
+import com.anime.dto.response.ApiResponse;
 import com.anime.entity.FavoriteFolder;
 import com.anime.entity.User;
 import com.anime.repository.FavoriteFolderRepository;
 import com.anime.repository.UserRepository;
-import com.anime.service.SensitiveWordFilter;
 import com.anime.service.UserService;
+import com.anime.util.SensitiveWordFilter;
+
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;

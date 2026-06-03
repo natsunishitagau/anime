@@ -1,9 +1,9 @@
 package com.anime.controller;
 
-import com.anime.dto.ApiResponse;
 import com.anime.dto.CharacterDto;
-import com.anime.dto.CharacterGameSequenceRequest;
 import com.anime.dto.DtoMapper;
+import com.anime.dto.request.CharacterGameSequenceRequest;
+import com.anime.dto.response.ApiResponse;
 import com.anime.entity.Character;
 import com.anime.repository.CharacterRepository;
 import org.springframework.http.ResponseEntity;

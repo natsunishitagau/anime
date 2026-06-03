@@ -1,4 +1,4 @@
-package com.anime.dto;
+package com.anime.dto.request;
 
 import jakarta.validation.constraints.NotBlank;
 import lombok.AllArgsConstructor;

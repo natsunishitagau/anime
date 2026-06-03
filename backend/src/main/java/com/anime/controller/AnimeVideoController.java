@@ -1,6 +1,6 @@
 package com.anime.controller;
 
-import com.anime.dto.ApiResponse;
+import com.anime.dto.response.ApiResponse;
 import com.anime.entity.AnimeVideo;
 import com.anime.service.AnimeVideoService;
 import org.springframework.beans.factory.annotation.Autowired;
