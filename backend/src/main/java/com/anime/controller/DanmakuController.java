@@ -4,6 +4,7 @@ import com.anime.dto.DanmakuDto;
 import com.anime.dto.UserPrincipal;
 import com.anime.dto.request.DanmakuRequest;
 import com.anime.dto.response.ApiResponse;
+import com.anime.service.DanmakuRateService;
 import com.anime.service.DanmakuService;
 import com.anime.util.SensitiveWordFilter;
 import com.anime.websocket.DanmakuWebSocketHandler;
@@ -21,11 +22,14 @@ public class DanmakuController {
     private final DanmakuService danmakuService;
     private final DanmakuWebSocketHandler danmakuWebSocketHandler;
     private final SensitiveWordFilter sensitiveWordFilter;
+    private final DanmakuRateService danmakuRateLimiter;
 
-    public DanmakuController(DanmakuService danmakuService, DanmakuWebSocketHandler danmakuWebSocketHandler, SensitiveWordFilter sensitiveWordFilter) {
+    public DanmakuController(DanmakuService danmakuService, DanmakuWebSocketHandler danmakuWebSocketHandler, 
+                            SensitiveWordFilter sensitiveWordFilter, DanmakuRateService danmakuRateLimiter) {
         this.danmakuService = danmakuService;
         this.danmakuWebSocketHandler = danmakuWebSocketHandler;
         this.sensitiveWordFilter = sensitiveWordFilter;
+        this.danmakuRateLimiter = danmakuRateLimiter;
     }
 
     @GetMapping("/video/{videoId}")
@@ -85,6 +89,10 @@ public class DanmakuController {
 
         if (!sensitiveWordFilter.validate(request.getContent())) {
             return ResponseEntity.badRequest().body(ApiResponse.error("Content contains sensitive words"));
+        }
+
+        if (!danmakuRateLimiter.tryAcquire(userPrincipal.getId(), request.getVideoId())) {
+            return ResponseEntity.status(429).body(ApiResponse.error("Too many requests"));
         }
 
         DanmakuDto danmaku = danmakuService.sendDanmaku(userPrincipal.getId(), request);

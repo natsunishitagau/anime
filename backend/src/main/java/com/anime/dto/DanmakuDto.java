@@ -19,5 +19,4 @@ public class DanmakuDto {
     private String color;
     private Integer fontSize;
     private LocalDateTime createdAt;
-    private Boolean isOwn;
 }

@@ -89,7 +89,6 @@ public class DanmakuService {
         dto.setColor(danmaku.getColor());
         dto.setFontSize(danmaku.getFontSize());
         dto.setCreatedAt(danmaku.getCreatedAt());
-        dto.setIsOwn(currentUserId != null && currentUserId.equals(danmaku.getUserId()));
 
         userRepository.findById(danmaku.getUserId()).ifPresent(user -> {
             dto.setUsername(user.getUsername());

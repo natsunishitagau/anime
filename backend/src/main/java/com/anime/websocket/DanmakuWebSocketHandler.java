@@ -63,7 +63,7 @@ public class DanmakuWebSocketHandler extends TextWebSocketHandler {
         }
         try {
             String json;
- 
+
             DanmakuDto dto = (DanmakuDto) danmakuData;
             Map<String, Object> broadcastData = new HashMap<>();
             broadcastData.put("id", dto.getId());
@@ -74,7 +74,6 @@ public class DanmakuWebSocketHandler extends TextWebSocketHandler {
             broadcastData.put("time", dto.getTime());
             broadcastData.put("color", dto.getColor());
             broadcastData.put("fontSize", dto.getFontSize());
-            broadcastData.put("isOwn", dto.getIsOwn());
             json = objectMapper.writeValueAsString(broadcastData);
 
             TextMessage message = new TextMessage(json);

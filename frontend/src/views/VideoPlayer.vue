@@ -105,6 +105,7 @@
 <script setup>
 import { ref, computed, onMounted, watch, nextTick, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useAuthStore } from '../stores/auth'
 import axios from '../utils/axios'
 import { useDanmakuEngine } from '../composables/useDanmakuEngine'
 import { useDanmakuWebSocket } from '../composables/useDanmakuWebSocket'
@@ -112,6 +113,7 @@ import VideoControls from '../components/VideoControls.vue'
 
 const route = useRoute()
 const router = useRouter()
+const authStore = useAuthStore()
 
 const video = ref(null)
 const episodes = ref([])
@@ -162,7 +164,7 @@ const {
   removeDanmaku,
   startRendering,
   destroy: destroyEngine
-} = useDanmakuEngine(videoElement, videoIdRef, currentTime, isPaused)
+} = useDanmakuEngine(videoElement, videoIdRef, currentTime, isPaused, computed(() => authStore.user?.id))
 
 const {
   isConnected,
@@ -454,15 +456,14 @@ const sendDanmaku = async () => {
   const localDanmaku = {
     id: Date.now(),
     videoId: video.value.id,
+    userId: authStore.user?.id,
     content: content,
     time: Math.floor(currentTime.value * 1000) / 1000,
     color: danmakuColor.value,
-    fontSize: 25,
-    isOwn: true
+    fontSize: 25
   }
 
   try {
-    // receiveRealtimeDanmaku(localDanmaku)
     await axios.post('/danmaku', {
       videoId: video.value.id,
       content: content,
@@ -474,7 +475,6 @@ const sendDanmaku = async () => {
   } catch (error) {
     console.error('Failed to send danmaku:', error)
     danmakuInput.value = ''
-    removeDanmaku(localDanmaku.id)
   }
 }
 

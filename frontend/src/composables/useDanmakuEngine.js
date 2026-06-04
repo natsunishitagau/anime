@@ -21,7 +21,7 @@ function hexToRgb(hex) {
   } : { r: 255, g: 255, b: 255 }
 }
 
-export function useDanmakuEngine(videoElementRef, videoIdRef, currentTimeRef, isPausedRef) {
+export function useDanmakuEngine(videoElementRef, videoIdRef, currentTimeRef, isPausedRef, currentUserIdRef) {
   let canvas = null
   let ctx = null
   let animationId = null
@@ -42,6 +42,11 @@ export function useDanmakuEngine(videoElementRef, videoIdRef, currentTimeRef, is
 
   let lastSegmentCheck = 0
   const SEGMENT_CHECK_THROTTLE = 500
+
+  function isOwnDanmaku(danmakuData) {
+    if (!currentUserIdRef.value || !danmakuData.userId) return false
+    return danmakuData.userId === currentUserIdRef.value
+  }
 
   function init(canvasElement, containerElement) {
     canvas = canvasElement
@@ -140,7 +145,7 @@ export function useDanmakuEngine(videoElementRef, videoIdRef, currentTimeRef, is
       track: track.index,
       rgb: hexToRgb(danmakuData.color),
       opacity: 1.0,
-      isOwn: danmakuData.isOwn || false
+      isOwn: isOwnDanmaku(danmakuData)
     }
 
     track.endX = containerWidth + textWidth + MIN_DANMAKU_GAP
@@ -170,7 +175,7 @@ export function useDanmakuEngine(videoElementRef, videoIdRef, currentTimeRef, is
       track: track.index,
       rgb: hexToRgb(danmakuData.color),
       opacity: 1.0,
-      isOwn: danmakuData.isOwn || false
+      isOwn: isOwnDanmaku(danmakuData)
     }
 
     track.endX = startX + textWidth + MIN_DANMAKU_GAP
