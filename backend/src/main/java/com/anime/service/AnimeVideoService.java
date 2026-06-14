@@ -22,6 +22,10 @@ public class AnimeVideoService {
         return videoRepository.findById(id);
     }
 
+    public String getHlsPlaylistPath(String videoTitle) {
+        return "/hls/" + videoTitle + "/" + videoTitle + ".m3u8";
+    }
+
     public AnimeVideo saveVideo(AnimeVideo video) {
         return videoRepository.save(video);
     }

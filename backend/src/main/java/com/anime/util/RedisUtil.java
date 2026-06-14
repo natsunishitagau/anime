@@ -1,5 +1,6 @@
 package com.anime.util;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.SessionCallback;
@@ -13,11 +14,8 @@ import java.util.concurrent.TimeUnit;
 @Component
 public class RedisUtil {
 
-    private final RedisTemplate<String, Object> redisTemplate;
-
-    public RedisUtil(RedisTemplate<String, Object> redisTemplate) {
-        this.redisTemplate = redisTemplate;
-    }
+    @Autowired
+    private RedisTemplate<String, Object> redisTemplate;
 
     public RedisTemplate<String, Object> getRedisTemplate() {
         return redisTemplate;

@@ -3,17 +3,16 @@ package com.anime.interceptor;
 import com.anime.service.StatisticsService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.HandlerInterceptor;
 
 @Component
 public class VisitInterceptor implements HandlerInterceptor {
 
-    private final StatisticsService statisticsService;
-
-    public VisitInterceptor(StatisticsService statisticsService) {
-        this.statisticsService = statisticsService;
-    }
+    @Autowired
+    private StatisticsService statisticsService;
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {

@@ -31,6 +31,10 @@ public class AnimeVideo {
     @Column(name = "video_path", nullable = false)
     private String videoPath;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "video_type", nullable = false)
+    private VideoType videoType;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 

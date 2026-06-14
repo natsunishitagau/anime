@@ -28,6 +28,7 @@ class AnimeMaster:
     3. 其他事实类问题，**使用search工具**搜索
     4. 回答时要：
     - 简洁、准确
+    - 不输出思考过程
     - 给出明确结论
     - 标注信息来源
 
@@ -127,7 +128,9 @@ class AnimeMaster:
     async def _prepare_model_input(self, thread_id: str, user_message: str) -> list:
         """准备模型输入，处理上下文压缩"""
         config = self._get_thread_config(thread_id)
+        # 转为异步执行
         state = await asyncio.to_thread(self.checkpointer.get, config)
+        # 返回的状态中提取消息
         current_messages = self._get_messages_from_state(state)
 
         message = HumanMessage(content=user_message)

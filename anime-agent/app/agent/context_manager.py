@@ -94,19 +94,37 @@ class ContextManager:
 context_manager = ContextManager()
 
 class CompressionSummaryStore:
+    """压缩摘要存储类，使用LRU策略和TTL机制管理对话摘要的缓存"""
+
     def __init__(self, max_size: int = 50000, ttl_seconds: int = 900):
+        """
+        初始化压缩摘要存储
+        :param max_size: 存储的最大条目数，超过时自动淘汰最旧的条目
+        :param ttl_seconds: 条目过期时间（秒），默认15分钟
+        """
         self._store: OrderedDict[str, tuple[str, float]] = OrderedDict()
         self.max_size = max_size
         self.ttl_seconds = ttl_seconds
 
     def _is_expired(self, timestamp: float) -> bool:
+        """
+        检查时间戳是否已过期
+        :param timestamp: 要检查的时间戳
+        :return: 如果已过期返回True，否则返回False
+        """
         return time.time() - timestamp > self.ttl_seconds
 
     def _evict_if_needed(self):
+        """当存储大小达到上限时，淘汰最旧的条目（LRU策略）"""
         while len(self._store) >= self.max_size:
             self._store.popitem(last=False)
 
     def get(self, thread_id: str) -> Optional[str]:
+        """
+        根据线程ID获取压缩摘要
+        :param thread_id: 线程唯一标识
+        :return: 压缩摘要内容，如果不存在或已过期返回None
+        """
         if thread_id not in self._store:
             return None
         content, timestamp = self._store[thread_id]
@@ -118,11 +136,20 @@ class CompressionSummaryStore:
         return content
 
     def set(self, thread_id: str, summary: str):
+        """
+        设置线程的压缩摘要
+        :param thread_id: 线程唯一标识
+        :param summary: 压缩摘要内容
+        """
         self._evict_if_needed()
         self._store[thread_id] = (summary, time.time())
         self._store.move_to_end(thread_id)
 
     def touch(self, thread_id: str):
+        """
+        更新线程条目的时间戳，延长其有效期
+        :param thread_id: 线程唯一标识
+        """
         if thread_id in self._store:
             content, _ = self._store[thread_id]
             self._store[thread_id] = (content, time.time())

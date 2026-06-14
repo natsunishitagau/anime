@@ -3,6 +3,8 @@ package com.anime.service;
 import com.anime.entity.DailyStats;
 import com.anime.repository.DailyStatsRepository;
 import com.anime.util.RedisUtil;
+
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -14,20 +16,17 @@ import java.util.Set;
 
 @Service
 public class StatisticsService {
-
-    private final RedisUtil redisUtil;
-    private final DailyStatsRepository dailyStatsRepository;
+    @Autowired
+    private RedisUtil redisUtil;
+    
+    @Autowired
+    private DailyStatsRepository dailyStatsRepository;
 
     private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
     private static final DateTimeFormatter HOUR_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd-HH");
     private static final DateTimeFormatter MONTH_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM");
 
     private static final int SWITCH_TO_HLL_THRESHOLD = 100;
-
-    public StatisticsService(RedisUtil redisUtil, DailyStatsRepository dailyStatsRepository) {
-        this.redisUtil = redisUtil;
-        this.dailyStatsRepository = dailyStatsRepository;
-    }
 
     public void recordVisit(String userId, String ip) {
         String today = LocalDate.now().format(DATE_FORMAT);
@@ -52,16 +51,16 @@ public class StatisticsService {
         String hllKey = "uv:" + period + ":" + date + ":hll";
         String switchFlagKey = "uv:" + period + ":" + date + ":switched";
 
-        Boolean hasSwitched = redisUtil.get(switchFlagKey) != null;
+        boolean hasSwitched = redisUtil.get(switchFlagKey) != null;
         
-        if (!Boolean.TRUE.equals(hasSwitched)) {
+        if (!hasSwitched) {
             Long setSize = redisUtil.sSize(setKey);
             
             if (setSize == null || setSize < SWITCH_TO_HLL_THRESHOLD) {
                 redisUtil.sAdd(setKey, visitorId);
                 setSize = redisUtil.sSize(setKey);
                 
-                if (setSize != null && setSize >= SWITCH_TO_HLL_THRESHOLD) {
+                if (setSize >= SWITCH_TO_HLL_THRESHOLD) {
                     switchToHyperLogLog(setKey, hllKey, switchFlagKey);
                 }
             } else {
@@ -75,10 +74,10 @@ public class StatisticsService {
 
     private void switchToHyperLogLog(String setKey, String hllKey, String switchFlagKey) {
         Set<Object> members = redisUtil.sMembers(setKey);
-        if (members != null && !members.isEmpty()) {
-            String[] memberArray = members.toArray(new String[0]);
-            redisUtil.pfAdd(hllKey, memberArray);
-        }
+
+        String[] memberArray = members.toArray(new String[0]);
+        redisUtil.pfAdd(hllKey, memberArray);
+        
         redisUtil.set(switchFlagKey, "true");
         redisUtil.delete(setKey);
     }
@@ -112,15 +111,14 @@ public class StatisticsService {
         String hllKey = "uv:" + uvPeriod + ":" + date + ":hll";
         String switchFlagKey = "uv:" + uvPeriod + ":" + date + ":switched";
 
-        Boolean hasSwitched = redisUtil.get(switchFlagKey) != null;
+        boolean hasSwitched = redisUtil.get(switchFlagKey) != null;
 
-        if (Boolean.TRUE.equals(hasSwitched)) {
-            Long count = redisUtil.pfCount(hllKey);
-            return count != null ? count : 0;
-        } else {
-            Long count = redisUtil.sSize(setKey);
-            return count != null ? count : 0;
-        }
+        if (hasSwitched) {
+            return redisUtil.pfCount(hllKey);
+        } 
+
+        Long count = redisUtil.sSize(setKey);
+        return count != null ? count : 0;
     }
 
     public java.util.Map<String, Object> getTodayStats() {
@@ -146,10 +144,11 @@ public class StatisticsService {
             java.util.Set<String> keys = redisUtil.keys(pattern);
             if (keys != null) {
                 keys.stream()
-                        .filter(k -> k.substring(prefix.length()).compareTo(cutoff) < 0)
-                        .forEach(redisUtil::delete);
+                    .filter(k -> k.substring(prefix.length()).compareTo(cutoff) < 0)
+                    .forEach(redisUtil::delete);
             }
         } catch (Exception ignored) {
+
         }
     }
 
@@ -163,21 +162,22 @@ public class StatisticsService {
             cleanupUVKeys(hllKeys, prefix, cutoff);
             cleanupUVKeys(flagKeys, prefix, cutoff);
         } catch (Exception ignored) {
+
         }
     }
 
     private void cleanupUVKeys(java.util.Set<String> keys, String prefix, String cutoff) {
         if (keys == null) return;
         keys.stream()
-                .filter(k -> {
-                    String datePart = k.substring(prefix.length());
-                    int endIndex = datePart.indexOf(':');
-                    if (endIndex > 0) {
-                        datePart = datePart.substring(0, endIndex);
-                    }
-                    return datePart.compareTo(cutoff) < 0;
-                })
-                .forEach(redisUtil::delete);
+            .filter(k -> {
+                String datePart = k.substring(prefix.length());
+                int endIndex = datePart.indexOf(':');
+                if (endIndex > 0) {
+                    datePart = datePart.substring(0, endIndex);
+                }
+                return datePart.compareTo(cutoff) < 0;
+            })
+            .forEach(redisUtil::delete);
     }
 
     @Scheduled(cron = "0 0 0 * * ?")
@@ -216,15 +216,14 @@ public class StatisticsService {
         String hllKey = "uv:daily:" + date + ":hll";
         String switchFlagKey = "uv:daily:" + date + ":switched";
 
-        Boolean hasSwitched = redisUtil.get(switchFlagKey) != null;
+        boolean hasSwitched = redisUtil.get(switchFlagKey) != null;
 
-        if (Boolean.TRUE.equals(hasSwitched)) {
-            Long count = redisUtil.pfCount(hllKey);
-            return count != null ? count : 0;
-        } else {
-            Long count = redisUtil.sSize(setKey);
-            return count != null ? count : 0;
-        }
+        if (hasSwitched) {
+            return redisUtil.pfCount(hllKey);
+        } 
+
+        Long count = redisUtil.sSize(setKey);
+        return count != null ? count : 0;
     }
 
     public Optional<DailyStats> getDailyStats(LocalDate date) {

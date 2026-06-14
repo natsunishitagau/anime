@@ -75,8 +75,7 @@
               </template>
               <template v-else-if="message.content!=''">
                 <div class="message-avatar">
-                  <span v-if="message.role === 'user' && !currentUser?.avatarUrl">👤</span>
-                  <img v-else-if="message.role === 'user' && currentUser?.avatarUrl" :src="currentUser.avatarUrl" alt="User" class="agent-avatar-img" />
+                  <img v-if="message.role === 'user'" :src="currentUser?.avatarUrl || '/src/assets/avatars/default.svg'" alt="User" class="agent-avatar-img" />
                   <img v-else src="/src/assets/avatars/anime-agent.png" alt="Anime Agent" class="agent-avatar-img" />
                 </div>
                 <div class="message-content">
@@ -781,7 +780,7 @@ onMounted(() => {
 }
 
 .user-message .message-avatar {
-  background: linear-gradient(135deg, #10b981, #059669);
+  background: transparent;
 }
 
 .assistant-message .message-avatar {

@@ -59,4 +59,16 @@ public class AnimeVideoController {
             return ResponseEntity.internalServerError().build();
         }
     }
+
+    @GetMapping("/hls/{id}")
+    public ResponseEntity<ApiResponse<String>> getHlsPlaylist(@PathVariable Long id) {
+        var optionalVideo = videoService.getVideoById(id);
+        if (optionalVideo.isEmpty()) {
+            return ResponseEntity.status(404).body(ApiResponse.error("视频不存在"));
+        }
+
+        AnimeVideo video = optionalVideo.get();
+        String hlsPath = videoService.getHlsPlaylistPath(video.getTitle());
+        return ResponseEntity.ok(ApiResponse.success(hlsPath));
+    }
 }

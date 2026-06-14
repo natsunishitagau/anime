@@ -21,5 +21,8 @@ public class WebMvcConfig implements WebMvcConfigurer {
 
         registry.addResourceHandler("/uploads/**")
             .addResourceLocations("file:" + absolutePath + "/");
+
+        registry.addResourceHandler("/hls/**")
+            .addResourceLocations("file:D:/animes/kuiba/hls/");
     }
 }

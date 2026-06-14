@@ -384,6 +384,7 @@ const getRating = () => {
 
 .year-labels {
   font-size: 0.75rem;
+  min-width: 45px;
   color: var(--text-secondary);
 }
 

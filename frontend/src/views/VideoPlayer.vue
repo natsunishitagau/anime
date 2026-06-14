@@ -111,6 +111,17 @@ import { useDanmakuEngine } from '../composables/useDanmakuEngine'
 import { useDanmakuWebSocket } from '../composables/useDanmakuWebSocket'
 import VideoControls from '../components/VideoControls.vue'
 
+let Hls = null
+const initHls = async () => {
+  if (!Hls) {
+    const { default: HlsModule } = await import('hls.js')
+    Hls = HlsModule.default || HlsModule
+  }
+  return Hls
+}
+
+let hlsInstance = null
+
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
@@ -138,8 +149,91 @@ const USER_ID = 1
 
 const videoUrl = computed(() => {
   if (!video.value) return ''
+  if (video.value.videoType === 'HLS') {
+    return `/api/videos/hls/${video.value.id}`
+  }
   return `/api/videos/stream/${video.value.id}`
 })
+
+const initVideoPlayer = async () => {
+  if (!videoElement.value || !video.value) return
+  
+  destroyHls()
+  
+  if (video.value.videoType === 'HLS') {
+    await initHlsPlayer()
+  } else {
+    videoElement.value.load()
+  }
+  
+  if (danmakuCanvasRef.value && videoWrapperRef.value) {
+    initEngine(danmakuCanvasRef.value, videoWrapperRef.value)
+    startRendering()
+  }
+  
+  if (savedProgress.value > 0 && lastWatchedEpisodeId.value === video.value.id) {
+    videoElement.value.currentTime = savedProgress.value
+  }
+}
+
+const initHlsPlayer = async () => {
+  if (!videoElement.value || !video.value) return
+  
+  try {
+    const Hls = await initHls()
+    
+    if (Hls.isSupported()) {
+      hlsInstance = new Hls({
+        enableWorker: true,
+        lowLatencyMode: false,
+        maxBufferLength: 30,
+        maxBufferSize: 10 * 1024 * 1024,
+        maxMaxBufferLength: 60
+      })
+      
+      const hlsResponse = await axios.get(`/videos/hls/${video.value.id}`)
+      const hlsPath = hlsResponse.data.data
+      
+      hlsInstance.loadSource(hlsPath)
+      hlsInstance.attachMedia(videoElement.value)
+      
+      hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
+        // console.log('HLS manifest parsed')
+      })
+      
+      hlsInstance.on(Hls.Events.ERROR, (event, data) => {
+        console.error('HLS error:', data)
+        if (data.fatal) {
+          switch (data.type) {
+            case Hls.ErrorTypes.NETWORK_ERROR:
+              console.error('Network error, trying to recover...')
+              hlsInstance.startLoad()
+              break
+            case Hls.ErrorTypes.MEDIA_ERROR:
+              console.error('Media error, trying to recover...')
+              hlsInstance.recoverMediaError()
+              break
+            default:
+              console.error('Fatal error, cannot recover')
+              destroyHls()
+              break
+          }
+        }
+      })
+    } else {
+      console.warn('HLS not supported in this browser')
+    }
+  } catch (error) {
+    console.error('Failed to initialize HLS player:', error)
+  }
+}
+
+const destroyHls = () => {
+  if (hlsInstance) {
+    hlsInstance.destroy()
+    hlsInstance = null
+  }
+}
 
 const volume = ref(0.4)
 const isMuted = ref(false)
@@ -193,16 +287,7 @@ const fetchVideo = async (videoId) => {
     await fetchEpisodes(video.value.animeId)
     await loadWatchHistory(video.value.animeId)
     await nextTick(() => {
-      if (videoElement.value) {
-        videoElement.value.load()
-        if (danmakuCanvasRef.value && videoWrapperRef.value) {
-          initEngine(danmakuCanvasRef.value, videoWrapperRef.value)
-          startRendering()
-        }
-        if (savedProgress.value > 0 && lastWatchedEpisodeId.value === video.value.id) {
-          videoElement.value.currentTime = savedProgress.value
-        }
-      }
+      initVideoPlayer()
     })
     connectWS()
     loadDanmakuCount()
@@ -490,9 +575,15 @@ const onDanmakuColorChange = (e) => {
 
 const formatTime = (seconds) => {
   if (!seconds || isNaN(seconds)) return '00:00'
-  const mins = Math.floor(seconds / 60)
+  const hours = Math.floor(seconds / 3600)
+  const mins = Math.floor((seconds % 3600) / 60)
   const secs = Math.floor(seconds % 60)
-  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
+  
+  if (hours > 0) {
+    return `${hours}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
+  } else {
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
+  }
 }
 
 const goBack = () => {
@@ -533,6 +624,7 @@ onMounted(() => {
 onUnmounted(() => {
   disconnectWS()
   destroyEngine()
+  destroyHls()
   if (videoElement.value) {
     saveWatchHistory(videoElement.value.currentTime, false)
   }
@@ -559,6 +651,7 @@ watch(() => route.params.id, (newId) => {
     lastWatchedEpisodeId.value = null
     disconnectWS()
     destroyEngine()
+    destroyHls()
     fetchVideo(newId)
   }
 })
