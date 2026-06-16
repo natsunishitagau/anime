@@ -4,6 +4,7 @@ import com.anime.entity.WatchHistory;
 import com.anime.repository.WatchHistoryRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Optional;
@@ -58,5 +59,15 @@ public class WatchHistoryService {
 
     public void deleteById(Long id) {
         watchHistoryRepository.deleteById(id);
+    }
+
+    @Transactional
+    public void deleteByUserIdAndAnimeId(Long userId, Long animeId) {
+        watchHistoryRepository.deleteByUserIdAndAnimeId(userId, animeId);
+    }
+
+    @Transactional
+    public void deleteByUserId(Long userId) {
+        watchHistoryRepository.deleteByUserId(userId);
     }
 }

@@ -1,6 +1,7 @@
-<template>
+﻿<template>
   <div class="profile">
     <div class="container">
+      <ConfirmDialog ref="confirmDialogRef" />
       <div class="profile-header">
         <div class="avatar-wrapper">
           <label class="avatar" for="avatar-upload" :style="{ backgroundImage: avatarUrl ? `url(${avatarUrl})` : null }">
@@ -41,7 +42,7 @@
             />
           </div>
           <p class="member-since" v-if="user?.createdAt">
-            加入于 {{ formatDate(user.createdAt) }}
+            加入时间：{{ formatDate(user.createdAt) }}
           </p>
         </div>
       </div>
@@ -64,7 +65,7 @@
               </div>
               <div class="folder-info">
                 <h3>{{ folder.name }}</h3>
-                <p>{{ folder.count }} 部番剧</p>
+                <p>{{ folder.count }} 部动漫</p>
               </div>
             </div>
           </div>
@@ -75,7 +76,13 @@
         </section>
 
         <section class="section">
-          <h2>观看历史</h2>
+      <div class="section-header">
+        <h2>观看历史</h2>
+        <button v-if="watchHistory.length > 0" class="btn-clear" @click="clearWatchHistory" title="清空所有">
+          <el-icon><Brush /></el-icon>
+          <span style="margin-left: 5px;">清空</span>
+        </button>
+      </div>
           <div v-if="watchHistory.length > 0" class="watch-history-list">
             <div class="history-item" v-for="item in watchHistory" :key="item.anime.id">
               <router-link :to="`/watch/${item.episodeId}`" class="history-anime">
@@ -85,7 +92,7 @@
                     <h4>{{ item.anime.title }}</h4>
                     <span class="history-time">{{ formatRelativeTime(item.updatedAt) }}</span>
                   </div>
-                  <p v-if="item.episodeNumber">第{{ item.episodeNumber }}话</p>
+                  <p v-if="item.episodeNumber">第{{ item.episodeNumber }}集</p>
                   <div class="progress-bar-wrapper">
                     <div class="progress-bar">
                       <div class="progress-fill" :style="{ width: (item.progressPercent || 0) + '%' }"></div>
@@ -96,6 +103,9 @@
                   <p class="time-display">{{ formatTime(item.progress) }} / {{ formatTime(item.duration) }}</p>
                 </div>
               </router-link>
+              <button class="btn-delete" @click.stop="deleteWatchHistory(item.anime.id)" title="删除记录">
+                <el-icon><Delete /></el-icon>
+              </button>
             </div>
           </div>
           <div v-else class="empty-state">
@@ -114,6 +124,8 @@ import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import axios from '../utils/axios'
 import { $message } from '../utils/message'
+import { Delete, Brush } from '@element-plus/icons-vue'
+import ConfirmDialog from '../components/ConfirmDialog.vue'
 import defaultImage from '../assets/favorites/bangumi.png'
 
 const router = useRouter()
@@ -122,6 +134,7 @@ const authStore = useAuthStore()
 const user = computed(() => authStore.user)
 const folders = ref([])
 const watchHistory = ref([])
+const confirmDialogRef = ref(null)
 const userSignature = ref('')
 const editingSignature = ref(false)
 const signatureInputRef = ref(null)
@@ -306,6 +319,37 @@ const fetchWatchHistory = async () => {
     watchHistory.value = data.data || []
   } catch (error) {
     console.error('Failed to fetch watch history:', error)
+  }
+}
+
+const deleteWatchHistory = async (animeId) => {
+  try {
+    const userId = authStore.user?.id
+    if (!userId) return
+    await fetch(`/api/watch-history/user/${userId}/anime/${animeId}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${authStore.token}` }
+    })
+    watchHistory.value = watchHistory.value.filter(i => i.anime.id !== animeId)
+  } catch (error) {
+    console.error('Failed to delete watch history:', error)
+  }
+}
+
+const clearWatchHistory = async () => {
+  if (!confirmDialogRef.value) return
+  const confirmed = await confirmDialogRef.value.show('确定要清空所有观看历史记录吗？此操作不可恢复。')
+  if (!confirmed) return
+  try {
+    const userId = authStore.user?.id
+    if (!userId) return
+    await fetch(`/api/watch-history/user/${userId}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${authStore.token}` }
+    })
+    watchHistory.value = []
+  } catch (error) {
+    console.error('Failed to clear watch history:', error)
   }
 }
 
@@ -512,9 +556,6 @@ onMounted(async () => {
 .section h2 {
   font-size: 1.125rem;
   font-weight: 600;
-  margin-bottom: 1.5rem;
-  padding-bottom: 0.75rem;
-  border-bottom: 1px solid var(--border-color);
 }
 
 .empty-state {
@@ -683,6 +724,57 @@ onMounted(async () => {
   color: var(--text-secondary);
   white-space: nowrap;
   min-width: 35px;
+}
+
+.btn-clear {
+  padding: 0.375rem 0.75rem;
+  font-size: 0.8125rem;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--border-color);
+  border-radius: 0.5rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-clear:hover {
+  border-color: #ef4444;
+  color: #ef4444;
+}
+
+.history-item {
+  position: relative;
+}
+
+.btn-delete {
+  position: absolute;
+  bottom: 0.5rem;
+  right: 0.5rem;
+  width: 1.5rem;
+  height: 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 0.25rem;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  opacity: 0;
+}
+
+.history-item:hover .btn-delete {
+  opacity: 1;
+}
+
+.btn-delete:hover {
+  border-color: #ef4444;
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
 }
 
 .badge-success {

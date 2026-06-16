@@ -2,6 +2,7 @@ package com.anime.repository;
 
 import com.anime.entity.WatchHistory;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -19,4 +20,8 @@ public interface WatchHistoryRepository extends JpaRepository<WatchHistory, Long
     Optional<WatchHistory> findByUserIdAndAnimeIdAndEpisodeId(Long userId, Long animeId, Long episodeId);
     
     List<WatchHistory> findByUserIdAndAnimeIdOrderByEpisodeNumberAsc(Long userId, Long animeId);
+
+    void deleteByUserIdAndAnimeId(Long userId, Long animeId);
+
+    void deleteByUserId(Long userId);
 }

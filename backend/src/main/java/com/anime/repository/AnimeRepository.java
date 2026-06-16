@@ -1,16 +1,19 @@
 package com.anime.repository;
 
-import com.anime.entity.Anime;
+import java.util.List;
+
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
-import java.util.List;
 
-@Repository
-public interface AnimeRepository extends JpaRepository<Anime, Long> {
+import com.anime.entity.Anime;
+
+    @Repository
+    public interface AnimeRepository extends JpaRepository<Anime, Long>, JpaSpecificationExecutor<Anime> {
 
     List<Anime> findByType(String type);
 
@@ -51,4 +54,10 @@ public interface AnimeRepository extends JpaRepository<Anime, Long> {
 
     @Query("SELECT a.id FROM Anime a")
     List<Long> findAllAnimeIds();
+
+    @Query("SELECT a FROM Anime a JOIN a.genres g WHERE g.name = :genreName AND a.score IS NOT NULL AND a.score > 0 ORDER BY a.score DESC")
+    List<Anime> findTopByGenre(@Param("genreName") String genreName, Pageable pageable);
+
+    @Query("SELECT a FROM Anime a WHERE a.score IS NOT NULL AND a.score > 0 AND a.imageUrl IS NOT NULL AND a.imageUrl <> '' AND a.titleJp IS NOT NULL AND a.titleJp <> '' ORDER BY a.score DESC")
+    List<Anime> findValidForGame(Pageable pageable);
 }

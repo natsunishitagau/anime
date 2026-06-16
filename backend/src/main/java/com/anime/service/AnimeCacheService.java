@@ -7,8 +7,9 @@ import com.anime.repository.AnimeRepository;
 import com.anime.repository.FavoriteRepository;
 import com.anime.repository.RatingRepository;
 import com.anime.repository.ReviewRepository;
-import com.anime.util.RedisUtil;
-import org.springframework.scheduling.annotation.Scheduled;
+    import com.anime.util.RedisUtil;
+import org.springframework.data.domain.PageRequest;
+    import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
@@ -163,15 +164,17 @@ public class AnimeCacheService {
     }
 
     private List<AnimeDto> fetchSeasonalAnime(String season, int limit) {
-        List<com.anime.entity.Anime> allAnime = animeRepository.findAll();
-        if (allAnime == null) {
-            return List.of();
+        // Use database-level filtering when season is specified
+        if (season != null && !season.isEmpty()) {
+            return animeRepository.findBySeason(season).stream()
+                    .filter(a -> a.getScore() != null)
+                    .sorted((a, b) -> Double.compare(b.getScore(), a.getScore()))
+                    .limit(limit)
+                    .map(dtoMapper::toAnimeDto)
+                    .collect(Collectors.toList());
         }
-        return allAnime.stream()
-                .filter(a -> a.getScore() != null)
-                .filter(a -> season == null || season.isEmpty() || season.equals(a.getSeason()))
-                .sorted((a, b) -> Double.compare(b.getScore(), a.getScore()))
-                .limit(limit)
+        // No season filter: use top-rated as fallback with only scored anime
+        return animeRepository.findTopRated(PageRequest.of(0, limit)).stream()
                 .map(dtoMapper::toAnimeDto)
                 .collect(Collectors.toList());
     }

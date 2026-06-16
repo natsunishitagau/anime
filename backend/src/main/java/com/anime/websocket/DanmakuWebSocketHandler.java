@@ -63,18 +63,23 @@ public class DanmakuWebSocketHandler extends TextWebSocketHandler {
         }
         try {
             String json;
-
-            DanmakuDto dto = (DanmakuDto) danmakuData;
-            Map<String, Object> broadcastData = new HashMap<>();
-            broadcastData.put("id", dto.getId());
-            broadcastData.put("videoId", dto.getVideoId());
-            broadcastData.put("userId", dto.getUserId());
-            broadcastData.put("username", dto.getUsername());
-            broadcastData.put("content", dto.getContent());
-            broadcastData.put("time", dto.getTime());
-            broadcastData.put("color", dto.getColor());
-            broadcastData.put("fontSize", dto.getFontSize());
-            json = objectMapper.writeValueAsString(broadcastData);
+            if (danmakuData instanceof DanmakuDto dto) {
+                Map<String, Object> broadcastData = new HashMap<>();
+                broadcastData.put("id", dto.getId());
+                broadcastData.put("videoId", dto.getVideoId());
+                broadcastData.put("userId", dto.getUserId());
+                broadcastData.put("username", dto.getUsername());
+                broadcastData.put("content", dto.getContent());
+                broadcastData.put("time", dto.getTime());
+                broadcastData.put("color", dto.getColor());
+                broadcastData.put("fontSize", dto.getFontSize());
+                json = objectMapper.writeValueAsString(broadcastData);
+            } else if (danmakuData instanceof Map) {
+                json = objectMapper.writeValueAsString(danmakuData);
+            } else {
+                log.warn("Unsupported danmakuData type: {}", danmakuData.getClass().getName());
+                return;
+            }
 
             TextMessage message = new TextMessage(json);
             for (WebSocketSession session : room.values()) {

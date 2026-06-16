@@ -12,7 +12,6 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/watch-history")
-@CrossOrigin
 public class WatchHistoryController {
 
     @Autowired
@@ -49,7 +48,21 @@ public class WatchHistoryController {
     @DeleteMapping("/{id}")
     public ResponseEntity<ApiResponse<Void>> deleteById(@PathVariable Long id) {
         watchHistoryService.deleteById(id);
-        return ResponseEntity.ok(ApiResponse.success(null));
+        return ResponseEntity.ok(ApiResponse.success("", null));
+    }
+
+    @DeleteMapping("/user/{userId}/anime/{animeId}")
+    public ResponseEntity<ApiResponse<Void>> deleteByUserIdAndAnimeId(
+            @PathVariable Long userId,
+            @PathVariable Long animeId) {
+        watchHistoryService.deleteByUserIdAndAnimeId(userId, animeId);
+        return ResponseEntity.ok(ApiResponse.success("", null));
+    }
+
+    @DeleteMapping("/user/{userId}")
+    public ResponseEntity<ApiResponse<Void>> clearByUserId(@PathVariable Long userId) {
+        watchHistoryService.deleteByUserId(userId);
+        return ResponseEntity.ok(ApiResponse.success("", null));
     }
 
     private WatchHistoryDto toDto(WatchHistory entity) {

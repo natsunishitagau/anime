@@ -133,7 +133,7 @@
           <div
             v-for="folder in folderListForMove"
             :key="folder.id"
-            :class="['folder-select-item', { disabled: folder.id === selectedFolderId }]"
+            :class="['folder-select-item', { disabled: folder.id === selectedFolderId, selected: targetFolderId === folder.id }]"
             @click="folder.id !== selectedFolderId && selectTargetFolder(folder)"
           >
             <div class="folder-thumb">
@@ -880,7 +880,7 @@ onUnmounted(() => {
   border-radius: 8px;
   padding: 0.5rem 0;
   width: fit-content;
-  min-width: 140px;
+  min-width: 150px;
   max-width: 200px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
   z-index: 10000;
@@ -1040,6 +1040,7 @@ a.btn-primary:hover {
   cursor: pointer;
   transition: background 0.2s;
   position: relative;
+  margin-bottom: 0.5rem;
 }
 
 .folder-select-item:hover:not(.disabled) {
@@ -1049,6 +1050,11 @@ a.btn-primary:hover {
 .folder-select-item.disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.folder-select-item.selected {
+  background: rgba(99, 102, 241, 0.2);
+  border: 1px solid rgba(99, 102, 241, 0.5);
 }
 
 .current-badge {
