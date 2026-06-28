@@ -310,13 +310,8 @@ const fetchFolders = async () => {
 
 const fetchWatchHistory = async () => {
   try {
-    const response = await fetch('/api/user/watch-history', {
-      headers: {
-        'Authorization': `Bearer ${authStore.token}`
-      }
-    })
-    const data = await response.json()
-    watchHistory.value = data.data || []
+    const response = await axios.get('/watch-history')
+    watchHistory.value = response.data.data || []
   } catch (error) {
     console.error('Failed to fetch watch history:', error)
   }
@@ -324,12 +319,7 @@ const fetchWatchHistory = async () => {
 
 const deleteWatchHistory = async (animeId) => {
   try {
-    const userId = authStore.user?.id
-    if (!userId) return
-    await fetch(`/api/watch-history/user/${userId}/anime/${animeId}`, {
-      method: 'DELETE',
-      headers: { 'Authorization': `Bearer ${authStore.token}` }
-    })
+    await axios.delete(`/watch-history/anime/${animeId}`)
     watchHistory.value = watchHistory.value.filter(i => i.anime.id !== animeId)
   } catch (error) {
     console.error('Failed to delete watch history:', error)
@@ -341,12 +331,7 @@ const clearWatchHistory = async () => {
   const confirmed = await confirmDialogRef.value.show('确定要清空所有观看历史记录吗？此操作不可恢复。')
   if (!confirmed) return
   try {
-    const userId = authStore.user?.id
-    if (!userId) return
-    await fetch(`/api/watch-history/user/${userId}`, {
-      method: 'DELETE',
-      headers: { 'Authorization': `Bearer ${authStore.token}` }
-    })
+    await axios.delete('/watch-history')
     watchHistory.value = []
   } catch (error) {
     console.error('Failed to clear watch history:', error)

@@ -145,8 +145,6 @@ const videoWrapperRef = ref(null)
 const videoIdRef = computed(() => video.value?.id || null)
 const wsConnected = ref(false)
 
-const USER_ID = 1
-
 const videoUrl = computed(() => {
   if (!video.value) return ''
   if (video.value.videoType === 'HLS') {
@@ -354,7 +352,7 @@ const fetchEpisodes = async (animeId) => {
 
 const loadWatchHistory = async (animeId) => {
   try {
-    const response = await axios.get(`/watch-history/user/${USER_ID}/anime/${animeId}`)
+    const response = await axios.get(`/watch-history/anime/${animeId}`)
     if (response.data.data) {
       lastWatchedEpisodeId.value = response.data.data.episodeId
       savedProgress.value = response.data.data.progress || 0
@@ -369,7 +367,6 @@ const saveWatchHistory = async (progress, completed) => {
   try {
     await axios.post('/watch-history/progress', null, {
       params: {
-        userId: USER_ID,
         animeId: video.value.animeId,
         episodeId: video.value.id,
         episodeNumber: video.value.episodeNumber,

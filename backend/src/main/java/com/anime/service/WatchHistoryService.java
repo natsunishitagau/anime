@@ -62,6 +62,13 @@ public class WatchHistoryService {
     }
 
     @Transactional
+    public void deleteByIdAndUser(Long id, Long userId) {
+        WatchHistory history = watchHistoryRepository.findByIdAndUserId(id, userId)
+                .orElseThrow(() -> new RuntimeException("Watch history not found or access denied"));
+        watchHistoryRepository.delete(history);
+    }
+
+    @Transactional
     public void deleteByUserIdAndAnimeId(Long userId, Long animeId) {
         watchHistoryRepository.deleteByUserIdAndAnimeId(userId, animeId);
     }

@@ -35,7 +35,6 @@ public class AnimeController {
     private final CharacterRepository characterRepository;
     private final AnimeCharacterRepository animeCharacterRepository;
     private final GenreRepository genreRepository;
-    private final UserRepository userRepository;
     private final FavoriteRepository favoriteRepository;
     private final RecommendationService recommendationService;
     private final AnimeCacheService animeCacheService;
@@ -45,7 +44,7 @@ public class AnimeController {
 
     public AnimeController(AnimeRepository animeRepository, CharacterRepository characterRepository,
                            AnimeCharacterRepository animeCharacterRepository,
-                           GenreRepository genreRepository, UserRepository userRepository,
+                           GenreRepository genreRepository,
                            FavoriteRepository favoriteRepository,
                            RecommendationService recommendationService, AnimeCacheService animeCacheService,
                            DtoMapper dtoMapper, JdbcTemplate jdbcTemplate,
@@ -54,7 +53,6 @@ public class AnimeController {
         this.characterRepository = characterRepository;
         this.animeCharacterRepository = animeCharacterRepository;
         this.genreRepository = genreRepository;
-        this.userRepository = userRepository;
         this.favoriteRepository = favoriteRepository;
         this.recommendationService = recommendationService;
         this.animeCacheService = animeCacheService;

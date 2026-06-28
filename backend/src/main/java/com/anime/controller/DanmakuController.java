@@ -8,6 +8,7 @@ import com.anime.service.DanmakuRateService;
 import com.anime.service.DanmakuService;
 import com.anime.util.SensitiveWordFilter;
 import com.anime.websocket.DanmakuWebSocketHandler;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -71,12 +72,13 @@ public class DanmakuController {
     @PostMapping
     public ResponseEntity<ApiResponse<DanmakuDto>> sendDanmaku(
             @RequestBody DanmakuRequest request,
-            Authentication authentication) {
+            Authentication authentication,
+            HttpServletRequest httpRequest) {
         if (authentication == null) {
             return ResponseEntity.status(401).body(ApiResponse.error("Authentication required"));
         }
         UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
-        
+
         if (request.getContent() == null || request.getContent().trim().isEmpty()) {
             return ResponseEntity.badRequest().body(ApiResponse.error("Content cannot be empty"));
         }
@@ -91,13 +93,35 @@ public class DanmakuController {
             return ResponseEntity.badRequest().body(ApiResponse.error("Content contains sensitive words"));
         }
 
-        if (!danmakuRateLimiter.tryAcquire(userPrincipal.getId(), request.getVideoId())) {
+        String clientIp = getClientIp(httpRequest);
+        if (!danmakuRateLimiter.tryAcquire(userPrincipal.getId(), request.getVideoId(), clientIp)) {
             return ResponseEntity.status(429).body(ApiResponse.error("Too many requests"));
         }
 
         DanmakuDto danmaku = danmakuService.sendDanmaku(userPrincipal.getId(), request);
         danmakuWebSocketHandler.broadcastDanmaku(String.valueOf(request.getVideoId()), danmaku);
         return ResponseEntity.ok(ApiResponse.success("Danmaku sent successfully", danmaku));
+    }
+
+    /**
+     * 获取客户端真实 IP。
+     * 优先从反向代理头获取，防止前端经过 Nginx 等代理后拿到的是代理 IP。
+     */
+    private String getClientIp(HttpServletRequest request) {
+        String ip = request.getHeader("X-Forwarded-For");
+        if (ip != null && !ip.isBlank() && !"unknown".equalsIgnoreCase(ip)) {
+            // X-Forwarded-For 可能是 "client, proxy1, proxy2"，取第一个
+            int commaIdx = ip.indexOf(',');
+            if (commaIdx > 0) {
+                ip = ip.substring(0, commaIdx).trim();
+            }
+            return ip;
+        }
+        ip = request.getHeader("X-Real-IP");
+        if (ip != null && !ip.isBlank() && !"unknown".equalsIgnoreCase(ip)) {
+            return ip;
+        }
+        return request.getRemoteAddr();
     }
 
     @DeleteMapping("/{danmakuId}")

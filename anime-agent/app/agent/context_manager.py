@@ -1,167 +1,145 @@
+"""
+上下文管理器 — 话题切换检测 + 滚动摘要压缩
+
+- detect_anime_switch: 检测用户是否切换了讨论的动漫，按 thread_id 隔离
+- rolling_summary: 调用 LLM 将旧摘要与新消息合并为滚动摘要（话题切换时标注）
+"""
+
 import re
-import time
-from collections import OrderedDict
-from typing import List, Optional, Tuple
-from langchain_core.messages import SystemMessage, BaseMessage
-from dataclasses import dataclass, field
+from typing import Optional, List, Dict
 
-MAX_TOKENS = 6000
-COMPRESSION_THRESHOLD = 0.8
-ANIME_KEYWORDS = ["动漫", "番剧", "动画", "这部", "那部", "第", "部", "名字", "角色", "主角"]
+COMPRESS_EVERY_N = 10  # 每 N 条消息触发一次压缩
 
-@dataclass
-class ConversationSummary:
-    summary: str
-    remaining_messages: List[BaseMessage] = field(default_factory=list)
 
 class ContextManager:
-    def __init__(self, max_tokens: int = MAX_TOKENS, compression_threshold: float = COMPRESSION_THRESHOLD):
-        self.max_tokens = max_tokens
-        self.compression_threshold = compression_threshold
-        self.current_anime: Optional[str] = None
+    """按线程管理对话上下文：话题追踪 + 摘要生成"""
+
+    def __init__(self):
+        self._thread_anime: dict[str, str] = {}
         self._summary_llm = None
 
-    def set_llm(self, llm):
-        self._summary_llm = llm
-
-    def estimate_tokens(self, messages: List[BaseMessage]) -> int:
-        total_tokens = 0
-        for msg in messages:
-            content = msg.content if isinstance(msg.content, str) else str(msg.content)
-            chinese_chars = len(re.findall(r'[\u4e00-\u9fff]', content))
-            non_chinese_chars = len(content) - chinese_chars
-            tokens = int(chinese_chars * 1.5 + non_chinese_chars / 4)
-            total_tokens += tokens
-        return total_tokens
+    # ── 话题检测 ──────────────────────────────────────────────
 
     def extract_anime_name(self, user_message: str) -> Optional[str]:
+        """从用户消息中提取并规范化动漫名称"""
         patterns = [
-            r"(?:说说|介绍|讲讲|聊聊)(.+?)(?:的|有关|相关)?(?:剧情|角色|故事|内容)?",
-            r"(?:第(\d+)部?)",
-            r"《(.+?)》",
+            # 书名号：《进击的巨人》 → "进击的巨人"
+            (r"《(.+?)》", 1),
+            # 说说/介绍/讲讲/聊聊 XXX（贪婪捕获完整名字，再清理尾部虚词）
+            (r"(?:说说|介绍|讲讲|聊聊)(.+)(?:的|有关|相关)?(?:剧情|角色|故事|内容)?", 1),
         ]
-        for pattern in patterns:
+        for pattern, group_idx in patterns:
             match = re.search(pattern, user_message)
             if match:
-                return match.group(0)
+                name = match.group(group_idx).strip()
+                # 循环清理尾部常见后缀，处理"的结局"、"的人物"等复合结尾
+                while True:
+                    new_name = re.sub(r"(?:的结局|的人物|的角色|的剧情|的|了|吗|呢|啊|吧|什么|怎么|结局|剧情|人物|角色)$", "", name).strip()
+                    if new_name == name:
+                        break
+                    name = new_name
+                if name and len(name) >= 2:
+                    return name
         return None
 
-    def detect_anime_switch(self, user_message: str) -> bool:
+    def _name_matches(self, a: str, b: str) -> bool:
+        """判断两个动漫名称是否指向同一部作品"""
+        a, b = a.lower().strip(), b.lower().strip()
+        return a == b or a in b or b in a
+
+    def detect_anime_switch(self, user_message: str, thread_id: str) -> tuple:
+        """
+        检测用户是否切换了讨论的动漫
+
+        Returns:
+            (is_switch: bool, anime_name: str | None)
+            - is_switch=True: 用户切换了话题，anime_name 为新动漫名
+            - is_switch=False: 未切换或首次设置
+        """
         new_anime = self.extract_anime_name(user_message)
-        if new_anime and self.current_anime and new_anime != self.current_anime:
-            return True
+        current = self._thread_anime.get(thread_id)
+
+        # 切换：之前有话题，且新话题不同（用包含关系判断，避免不同提问方式误判）
+        if new_anime and current and not self._name_matches(new_anime, current):
+            self._thread_anime[thread_id] = new_anime
+            return True, new_anime
+
+        # 首次设置或相同话题
         if new_anime:
-            self.current_anime = new_anime
-        return False
+            self._thread_anime[thread_id] = new_anime
 
-    async def compress_context(self, messages: List[BaseMessage]) -> Tuple[List[BaseMessage], str]:
-        system_msg = None
-        non_system = []
-        for msg in messages:
-            if isinstance(msg, SystemMessage):
-                system_msg = msg
-            else:
-                non_system.append(msg)
+        return False, new_anime
 
-        if len(non_system) <= 2:
-            return messages, ""
+    def get_current_anime(self, thread_id: str) -> Optional[str]:
+        """获取当前线程正在讨论的动漫名称"""
+        return self._thread_anime.get(thread_id)
 
-        summary_prompt = f"""请总结以下对话的要点，保留关键信息以便后续对话能继续：
+    def clear_thread(self, thread_id: str):
+        """清理指定线程的动漫追踪状态"""
+        self._thread_anime.pop(thread_id, None)
 
-{' '.join([f'{msg.type}: {msg.content if isinstance(msg.content, str) else str(msg.content)}' for msg in non_system])}
+    # ── 滚动摘要 ──────────────────────────────────────────────
 
-简洁总结（200字以内）："""
+    async def rolling_summary(
+        self,
+        old_summary: str | None,
+        recent_messages: List[Dict],
+        switch_info: str | None = None,
+    ) -> str:
+        """
+        调用 LLM 将旧摘要与新消息合并为滚动摘要。
 
+        Args:
+            old_summary: 上一次的摘要（None 表示首次压缩）
+            recent_messages: 最近的消息列表 [{"role": "...", "content": "..."}, ...]
+            switch_info: 话题切换标注，如 "anime_switch:进击的巨人"
+
+        Returns:
+            新的摘要文本（300 字以内）
+        """
         if not self._summary_llm:
             from app.models.chat import llm
             self._summary_llm = llm
 
-        response = await self._summary_llm.ainvoke([{"role": "user", "content": summary_prompt}])
-        summary = response.content if hasattr(response, 'content') else str(response)
+        # 构建消息文本（截断每条防止太长）
+        msg_lines = []
+        for m in recent_messages:
+            content = m["content"][:300] if len(m["content"]) > 300 else m["content"]
+            role_label = "用户" if m["role"] == "user" else "助手"
+            msg_lines.append(f"{role_label}: {content}")
+        msg_text = "\n".join(msg_lines)
 
-        compressed = [system_msg] if system_msg else []
-        compressed.append(SystemMessage(content=f"[对话摘要] {summary}"))
-        compressed.extend(non_system[-2:])
+        # 话题切换标注
+        switch_note = ""
+        if switch_info:
+            anime_name = switch_info.split(":", 1)[1] if ":" in switch_info else switch_info
+            switch_note = (
+                f"\n【重要】用户切换了讨论话题，新话题为《{anime_name}》。"
+                f"请在摘要中明确标注此话题切换。\n"
+            )
 
-        return compressed, summary
+        prompt = f"""请将以下内容合并成一个简洁的对话摘要（300字以内，中文）：
+        {'【已有摘要】' + old_summary if old_summary else '【首次对话记录】'}
+        {switch_note}
+        【最近对话】
+        {msg_text}
 
-    def should_compress(self, messages: List[BaseMessage], user_message: str) -> bool:
-        if self.detect_anime_switch(user_message):
-            return True
-        token_count = self.estimate_tokens(messages)
-        return token_count >= self.max_tokens * self.compression_threshold
+        要求：
+        - 保留关键信息：动漫名称、剧情讨论要点、用户提出的问题和观点
+        - 如果标注了话题切换，摘要中必须包含"话题切换：从XXX到XXX"或类似描述
+        - 语言简洁，不超过300字
+        - 用第三人称描述，例如"用户询问了..."、"助手解释了..."
+        - 不要遗漏任何用户明确表达过的偏好或评价"""
 
+        try:
+            response = await self._summary_llm.ainvoke([{"role": "user", "content": prompt}])
+            summary = response.content if hasattr(response, "content") else str(response)
+            return summary.strip()
+        except Exception as e:
+            print(f"[ContextManager] 摘要生成失败: {e}")
+            # 降级：返回旧摘要（如果有的话）
+            return old_summary or ""
+
+
+# 全局单例
 context_manager = ContextManager()
-
-class CompressionSummaryStore:
-    """压缩摘要存储类，使用LRU策略和TTL机制管理对话摘要的缓存"""
-
-    def __init__(self, max_size: int = 50000, ttl_seconds: int = 900):
-        """
-        初始化压缩摘要存储
-        :param max_size: 存储的最大条目数，超过时自动淘汰最旧的条目
-        :param ttl_seconds: 条目过期时间（秒），默认15分钟
-        """
-        self._store: OrderedDict[str, tuple[str, float]] = OrderedDict()
-        self.max_size = max_size
-        self.ttl_seconds = ttl_seconds
-
-    def _is_expired(self, timestamp: float) -> bool:
-        """
-        检查时间戳是否已过期
-        :param timestamp: 要检查的时间戳
-        :return: 如果已过期返回True，否则返回False
-        """
-        return time.time() - timestamp > self.ttl_seconds
-
-    def _evict_if_needed(self):
-        """当存储大小达到上限时，淘汰最旧的条目（LRU策略）"""
-        while len(self._store) >= self.max_size:
-            self._store.popitem(last=False)
-
-    def get(self, thread_id: str) -> Optional[str]:
-        """
-        根据线程ID获取压缩摘要
-        :param thread_id: 线程唯一标识
-        :return: 压缩摘要内容，如果不存在或已过期返回None
-        """
-        if thread_id not in self._store:
-            return None
-        content, timestamp = self._store[thread_id]
-        if self._is_expired(timestamp):
-            del self._store[thread_id]
-            return None
-        self._store.move_to_end(thread_id)
-
-        return content
-
-    def set(self, thread_id: str, summary: str):
-        """
-        设置线程的压缩摘要
-        :param thread_id: 线程唯一标识
-        :param summary: 压缩摘要内容
-        """
-        self._evict_if_needed()
-        self._store[thread_id] = (summary, time.time())
-        self._store.move_to_end(thread_id)
-
-    def touch(self, thread_id: str):
-        """
-        更新线程条目的时间戳，延长其有效期
-        :param thread_id: 线程唯一标识
-        """
-        if thread_id in self._store:
-            content, _ = self._store[thread_id]
-            self._store[thread_id] = (content, time.time())
-            self._store.move_to_end(thread_id)
-
-    def get_recent_summary_with_messages(self, thread_id: str, messages: List[BaseMessage], keep_recent: int = 4) -> List[BaseMessage]:
-        self.touch(thread_id)
-        summary = self.get(thread_id)
-        if not summary:
-            return messages[-keep_recent:] if len(messages) > keep_recent else messages
-        summary_msg = SystemMessage(content=f"[对话摘要] {summary}")
-        recent = messages[-keep_recent:] if len(messages) > keep_recent else messages
-        return [summary_msg] + recent
-
-summary_store = CompressionSummaryStore()

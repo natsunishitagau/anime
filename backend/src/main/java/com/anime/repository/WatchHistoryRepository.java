@@ -1,13 +1,14 @@
 package com.anime.repository;
 
-import com.anime.entity.WatchHistory;
+import java.util.List;
+import java.util.Optional;
+
 import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
-import java.util.List;
-import java.util.Optional;
+
+import com.anime.entity.WatchHistory;
 
 @Repository
 public interface WatchHistoryRepository extends JpaRepository<WatchHistory, Long> {
@@ -24,4 +25,6 @@ public interface WatchHistoryRepository extends JpaRepository<WatchHistory, Long
     void deleteByUserIdAndAnimeId(Long userId, Long animeId);
 
     void deleteByUserId(Long userId);
+
+    Optional<WatchHistory> findByIdAndUserId(Long id, Long userId);
 }

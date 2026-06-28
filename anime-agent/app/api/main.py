@@ -1,12 +1,19 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes import chat
+from app.db.user_chats import init_db
 
 app = FastAPI(
     title="Anime Agent API",
     description="动漫助手API接口",
     version="1.0.0"
 )
+
+
+@app.on_event("startup")
+async def startup():
+    """应用启动时初始化 MySQL 表"""
+    init_db()
 
 app.add_middleware(
     CORSMiddleware,

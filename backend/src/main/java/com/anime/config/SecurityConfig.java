@@ -5,6 +5,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -36,19 +37,38 @@ public class SecurityConfig {
             .csrf(csrf -> csrf.disable())
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/api/auth/**").permitAll()
-                .requestMatchers("/api/anime/**").permitAll()
-                .requestMatchers("/api/videos/**").permitAll()
-                .requestMatchers("/api/watch-history/**").permitAll()
-                .requestMatchers("/api/danmaku/**").permitAll()
-                .requestMatchers("/ws/**").permitAll()
-                .requestMatchers("/api/stats/**").permitAll()
+                // --- Admin endpoints (most restrictive first) ---
                 .requestMatchers("/api/admin/**").hasRole("ADMIN")
+                .requestMatchers(HttpMethod.POST, "/api/stats/cleanup").hasRole("ADMIN")
+
+                // --- Authenticated user data (user-specific) ---
+                .requestMatchers("/api/watch-history/**").authenticated()
                 .requestMatchers("/api/user/**").authenticated()
                 .requestMatchers("/api/user-settings/**").authenticated()
+
+                // --- Authenticated write operations (defense-in-depth) ---
+                .requestMatchers(HttpMethod.POST, "/api/danmaku/**").authenticated()
+                .requestMatchers(HttpMethod.DELETE, "/api/danmaku/**").authenticated()
+                .requestMatchers(HttpMethod.POST, "/api/anime/*/rate").authenticated()
+                .requestMatchers(HttpMethod.POST, "/api/anime/*/review/**").authenticated()
+                .requestMatchers(HttpMethod.DELETE, "/api/anime/*/review/**").authenticated()
+
+                // --- Public endpoints ---
+                .requestMatchers("/api/auth/**").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/anime/**").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/anime/game-sequence").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/danmaku/**").permitAll()
+                .requestMatchers("/api/videos/**").permitAll()
+                .requestMatchers("/api/character/**").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/character/game-sequence").permitAll()
+                .requestMatchers("/api/stats/overview").permitAll()
+                .requestMatchers("/api/stats/pv").permitAll()
+                .requestMatchers("/api/stats/uv").permitAll()
+                .requestMatchers("/ws/**").permitAll()
                 .requestMatchers("/uploads/**").permitAll()
                 .requestMatchers("/assets/**").permitAll()
                 .requestMatchers("/hls/**").permitAll()
+
                 .anyRequest().authenticated()
             )
             .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);

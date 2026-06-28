@@ -28,7 +28,7 @@ spring:
       password: 123456
 
   rabbitmq:
-    host: 10.137.229.133 # 你的虚拟机IP
+    host: 10.137.76.21 # 你的虚拟机IP
     port: 5672 # 端口
     virtual-host: zhy_host # 虚拟主机
     username: zhy # 用户名
@@ -51,6 +51,24 @@ spring:
 jwt:
   secret: anime-website-jwt-secret-key-2024-secure-random-string
   expiration: 604800000
+
+# ──────────────────────────── 弹幕限流配置 ────────────────────────────
+danmaku:
+  rate-limit:
+    # 用户级 — 令牌桶（Token Bucket）：允许短时突发，长期平滑限速
+    user:
+      capacity: 5        # 桶容量（最多可积攒 5 个令牌，支撑短时连发）
+      refill-rate: 1.0   # 每秒补充令牌数（稳定状态下 1 次/秒）
+
+    # 房间级 — 滑动窗口（Sliding Window）：精确控制时间窗口内请求总数
+    room:
+      window-seconds: 1  # 窗口大小（秒）
+      max-requests: 20   # 窗口内最大请求数
+
+    # IP 级 — 漏桶（Leaky Bucket）：恒定速率处理，削峰填谷
+    ip:
+      capacity: 10       # 桶容量（最多积压 10 个请求的"水"）
+      leak-rate: 5.0     # 每秒漏出速率（稳定处理 5 次/秒，共享 IP 友好）
 
 logging:
   level:
