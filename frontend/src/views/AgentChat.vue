@@ -1,17 +1,25 @@
 <template>
   <div class="agent-chat-page">
-    <div class="chat-container">
+    <div class="chat-container" :class="{ 'sidebar-open': showSidebar }">
+      <!-- 窄屏遮罩层，点击关闭侧边栏 -->
+      <div class="sidebar-backdrop" @click="closeSidebar"></div>
+
       <div class="chat-sidebar">
         <div class="sidebar-header">
           <h2>智能助手</h2>
-          <button @click="createNewChat" class="btn btn-primary btn-sm">
-            + 新对话
-          </button>
+          <div class="sidebar-header-actions">
+            <button @click="createNewChat" class="btn btn-primary btn-sm">
+              + 新对话
+            </button>
+            <button class="sidebar-close-btn" @click="closeSidebar" title="关闭侧边栏">
+              ✕
+            </button>
+          </div>
         </div>
-        
+
         <div class="chat-list" v-if="filteredChatList.length > 0">
-          <div 
-            v-for="chat in filteredChatList" 
+          <div
+            v-for="chat in filteredChatList"
             :key="chat.thread_id"
             class="chat-item"
             :class="{ active: currentThreadId === chat.thread_id }"
@@ -20,8 +28,8 @@
             <div class="chat-info">
               <div class="chat-title">{{ chat.title }}</div>
             </div>
-            <button 
-              @click.stop="deleteChat(chat.thread_id)" 
+            <button
+              @click.stop="deleteChat(chat.thread_id)"
               class="delete-chat-btn"
               title="删除对话"
             >✕</button>
@@ -41,6 +49,9 @@
               <img src="/src/assets/avatars/anime-agent.png" class="agent-avatar-img" />
               <span class="agent-name">Anime Master</span>
             </div>
+            <button class="history-toggle-btn" @click="toggleSidebar">
+              📋 对话历史
+            </button>
           </div>
 
           <div v-if="messages.length > 0" ref="messagesContainer" class="messages-container">
@@ -112,21 +123,32 @@
         </div>
 
         <div v-else class="welcome-screen">
-          <img src="/src/assets/avatars/Master.svg" class="welcome-icon" />
-          <h1>Anime Master</h1>
-          <p>你的专属动漫智能助手</p>
-          <div class="features">
-            <div class="feature">
-              <span class="feature-icon">📚</span>
-              <span>动漫推荐</span>
+          <div class="welcome-top-bar">
+            <div class="header-info">
+              <img src="/src/assets/avatars/anime-agent.png" class="agent-avatar-img" />
+              <span class="agent-name">Anime Master</span>
             </div>
-            <div class="feature">
-              <span class="feature-icon">🎯</span>
-              <span>剧情分析</span>
-            </div>
-            <div class="feature">
-              <span class="feature-icon">💬</span>
-              <span>角色讨论</span>
+            <button class="history-toggle-btn" @click="toggleSidebar">
+              📋 对话历史
+            </button>
+          </div>
+          <div class="welcome-content">
+            <img src="/src/assets/avatars/Master.svg" class="welcome-icon" />
+            <h1>Anime Master</h1>
+            <p>你的专属动漫智能助手</p>
+            <div class="features">
+              <div class="feature">
+                <span class="feature-icon">📚</span>
+                <span>动漫推荐</span>
+              </div>
+              <div class="feature">
+                <span class="feature-icon">🎯</span>
+                <span>剧情分析</span>
+              </div>
+              <div class="feature">
+                <span class="feature-icon">💬</span>
+                <span>角色讨论</span>
+              </div>
             </div>
           </div>
         </div>
@@ -183,6 +205,7 @@ const isLoading = ref(false)
 const messagesContainer = ref(null)
 const isNewChat = ref(true)
 const confirmDialogRef = ref(null)
+const showSidebar = ref(false)  // 窄屏侧边栏抽屉状态
 
 let activeRequest = null
 let activeReader = null
@@ -243,15 +266,25 @@ const createNewChat = () => {
   messages.value = []
   inputMessage.value = ''
   isNewChat.value = true
+  closeSidebar()
   nextTick(() => {
     focusInput()
   })
+}
+
+const toggleSidebar = () => {
+  showSidebar.value = !showSidebar.value
+}
+
+const closeSidebar = () => {
+  showSidebar.value = false
 }
 
 const switchChat = async (threadId) => {
   cancelActiveRequest()
   currentThreadId.value = threadId
   isNewChat.value = false
+  closeSidebar()
   await fetchHistory(threadId)
   isLoading.value = false
   nextTick(() => {
@@ -673,12 +706,15 @@ onMounted(() => {
   flex: 1;
   display: flex;
   flex-direction: column;
+  min-height: 0;  /* 关键：允许 flex 子元素在缩放时收缩 */
+  overflow: hidden;
 }
 
 .chat-content {
   flex: 1;
   display: flex;
   flex-direction: column;
+  min-height: 0;  /* 关键：允许 flex 子元素在缩放时收缩 */
 }
 
 .chat-header {
@@ -707,12 +743,11 @@ onMounted(() => {
 
 .messages-container {
   flex: 1;
+  min-height: 0;  /* 缩放时不塌陷 */
   overflow-y: auto;
   padding: 1.5rem;
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 16.5rem);
-  max-height: calc(100vh - 16.5rem);
 }
 
 .empty-chat-state {
@@ -1142,6 +1177,21 @@ onMounted(() => {
   flex: 1;
   display: flex;
   flex-direction: column;
+}
+
+.welcome-top-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  background: var(--background-light);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.welcome-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   padding: 2rem;
@@ -1195,20 +1245,143 @@ onMounted(() => {
   font-size: 0.875rem;
 }
 
-@media (max-width: 768px) {
-  .chat-sidebar {
-    width: 100%;
-    position: absolute;
-    z-index: 100;
-    height: calc(100vh - 5rem);
+/* ─── "对话历史" 文字按钮 ─── */
+.history-toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: 0.5rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 0.875rem;
+  padding: 0.5rem 0.875rem;
+  transition: all 0.2s;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.history-toggle-btn:hover {
+  background: var(--background-median);
+  color: var(--text-primary);
+  border-color: var(--primary-color);
+}
+
+/* ─── 侧边栏关闭按钮 ─── */
+.sidebar-close-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: 0.375rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 1rem;
+  transition: all 0.2s;
+}
+
+.sidebar-close-btn:hover {
+  background: var(--background-median);
+  color: var(--text-primary);
+}
+
+.sidebar-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* ─── 遮罩层 ─── */
+.sidebar-backdrop {
+  display: block;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 99;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+
+/* ─── 宽屏：隐藏窄屏专属元素 ─── */
+@media (min-width: 769px) {
+  .history-toggle-btn,
+  .sidebar-close-btn,
+  .sidebar-backdrop {
+    display: none;
   }
-  
+}
+
+@media (max-width: 768px) {
+  /* ─── 侧边栏 → slide-over drawer ─── */
+  .chat-sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 300px;
+    max-width: 85vw;
+    z-index: 100;
+    height: 100vh;
+    transform: translateX(-100%);
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: none;
+  }
+
+  .chat-container.sidebar-open .chat-sidebar {
+    transform: translateX(0);
+    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.25);
+  }
+
+  /* ─── 遮罩层：sidebar 打开时显示 ─── */
+  .chat-container.sidebar-open .sidebar-backdrop {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  /* ─── 聊天主区全宽 ─── */
   .chat-main {
     width: 100%;
   }
-  
+
+  /* ─── 消息气泡在窄屏放宽 ─── */
   .message-content {
     max-width: 85%;
   }
+
+  /* ─── 窄屏下减小 padding ─── */
+  .messages-container {
+    padding: 1rem;
+  }
+
+  .input-container {
+    padding: 1rem;
+    gap: 0.5rem;
+  }
+
+  .message-input {
+    padding: 0.75rem 1rem;
+  }
+
+  .send-btn {
+    padding: 0.75rem 1rem;
+  }
+
+  .welcome-screen h1 {
+    font-size: 1.75rem;
+  }
+
+  .features {
+    gap: 1rem;
+  }
+
+  .feature {
+    padding: 1rem;
+  }
+
 }
 </style>

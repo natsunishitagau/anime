@@ -178,7 +178,7 @@ class AnimeMaster:
 
         1. 组装上下文（取最近 6 条历史 + 摘要）
         2. 保存用户消息到 MySQL
-        3. 调 LLM → 流式返回
+        3. 调 LLM → astream 原生异步流式返回
         4. 保存 assistant 回复到 MySQL
         5. 更新对话时间戳
 
@@ -195,43 +195,23 @@ class AnimeMaster:
         full_response: list[str] = []  # 收集完整回复用于持久化
 
         try:
-            queue: asyncio.Queue = asyncio.Queue()
-
-            def sync_stream_producer():
-                try:
-                    for chunk, _data in self.agent.stream(
-                        {"messages": model_input},
-                        stream_mode="messages",
-                    ):
-                        queue.put_nowait(("message", chunk))
-                except Exception as e:
-                    queue.put_nowait(("error", e))
-                finally:
-                    queue.put_nowait(("done", None))
-
-            # 在线程中启动同步流式生产者
-            asyncio.get_event_loop().run_in_executor(None, sync_stream_producer)
-
-            # 异步消费队列
-            while True:
-                stream_mode, chunk = await queue.get()
-                if stream_mode == "done":
-                    break
-                elif stream_mode == "error":
-                    raise chunk
-                elif stream_mode == "message":
-                    if chunk.content == "":
-                        try:
-                            if chunk.tool_calls:
-                                yield {"type": "tool_call", "content": "调用搜索工具"}
-                            else:
-                                yield {"type": "consider", "content": "思考中"}
-                        except Exception:
+            # 原生 astream，不再需要 run_in_executor + Queue 的 workaround
+            async for chunk, _data in self.agent.astream(
+                {"messages": model_input},
+                stream_mode="messages",
+            ):
+                if chunk.content == "":
+                    try:
+                        if chunk.tool_calls:
+                            yield {"type": "tool_call", "content": "调用搜索工具"}
+                        else:
                             yield {"type": "consider", "content": "思考中"}
-                    else:
-                        if isinstance(chunk, AIMessage):
-                            full_response.append(chunk.content)
-                            yield {"type": "content", "content": chunk.content}
+                    except Exception:
+                        yield {"type": "consider", "content": "思考中"}
+                else:
+                    if isinstance(chunk, AIMessage):
+                        full_response.append(chunk.content)
+                        yield {"type": "content", "content": chunk.content}
 
         finally:
             # ③ 保存 assistant 回复（即使出错也要保存已有的部分）

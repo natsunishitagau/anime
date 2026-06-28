@@ -72,20 +72,21 @@
     </div>
 
     <div v-if="isMobileMenuOpen" class="mobile-menu">
-      <router-link to="/" class="mobile-link" @click="isMobileMenuOpen = false">首页</router-link>
-      <router-link to="/browse" class="mobile-link" @click="isMobileMenuOpen = false">浏览</router-link>
-      <router-link to="/game" class="mobile-link" @click="isMobileMenuOpen = false">游戏</router-link>
-      <router-link to="/agent" class="mobile-link" @click="isMobileMenuOpen = false">智能助手</router-link>
-      
+      <router-link to="/" class="mobile-link" @click="isMobileMenuOpen = false">🏠 首页</router-link>
+      <router-link to="/browse" class="mobile-link" @click="isMobileMenuOpen = false">📺 浏览</router-link>
+      <router-link to="/game" class="mobile-link" @click="isMobileMenuOpen = false">🎮 游戏</router-link>
+      <router-link to="/agent" class="mobile-link" @click="isMobileMenuOpen = false">🤖 智能助手</router-link>
+
       <template v-if="isAuthenticated">
-        <router-link to="/favorites" class="mobile-link" @click="isMobileMenuOpen = false">收藏</router-link>
-        <router-link to="/profile" class="mobile-link" @click="isMobileMenuOpen = false">个人资料</router-link>
-        <button @click="handleLogout" class="mobile-link logout">退出</button>
+        <router-link to="/favorites" class="mobile-link" @click="isMobileMenuOpen = false">⭐ 收藏</router-link>
+        <router-link to="/messages" class="mobile-link" @click="isMobileMenuOpen = false">📩 消息</router-link>
+        <router-link to="/profile" class="mobile-link" @click="isMobileMenuOpen = false">👤 个人资料</router-link>
+        <button @click="handleLogout" class="mobile-link logout">🚪 退出</button>
       </template>
-      
+
       <template v-else>
-        <router-link to="/login" class="mobile-link" @click="isMobileMenuOpen = false">登录</router-link>
-        <router-link to="/register" class="mobile-link" @click="isMobileMenuOpen = false">注册</router-link>
+        <router-link to="/login" class="mobile-link" @click="isMobileMenuOpen = false">👤 登录</router-link>
+        <router-link to="/register" class="mobile-link" @click="isMobileMenuOpen = false">📝 注册</router-link>
       </template>
     </div>
   </nav>
