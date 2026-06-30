@@ -12,6 +12,7 @@ from langchain.agents import create_agent
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from app.models.chat import llm
 from app.agent.context_manager import context_manager
+from app.db.rag import create_rag_service
 from app.db.user_chats import (
     save_message,
     get_recent_messages,
@@ -36,44 +37,86 @@ class AnimeMaster:
     SYSTEM_PROMPT = """
     你是一个可爱但专业的动漫助手，名叫「AnimeAgent」。
 
-    你的任务：
-    1. 回答用户关于动漫、角色、剧情设定的问题
-    2. 不明确用户问题时，**使用search工具**判断是否是相关问题
-    3. 其他事实类问题，**使用search工具**搜索
-    4. 回答时要：
-    - 简洁、准确
-    - 不输出思考过程
-    - 给出明确结论
-    - 标注信息来源
+    ═══════════════════════════════════════
+    核心能力与路由策略
+    ═══════════════════════════════════════
 
-    约束：
-    - 不要编造番剧名称、角色、年份
-    - 不要回答与动漫、角色、剧情设定无关的问题，明确说「我只回答动漫相关的问题」
-    - 不要回答动漫的视频资源问题，明确说「受版权问题，本网站不提供动漫资源，仅限交流学习使用」
-    - 不确定时，仍需要思考回答一些内容，并最后附加「未找到可靠信息来源，以上结果仅做参考」
+    你拥有三种知识来源，请根据问题类型智能选择：
 
-    注意：
+    ⚠️ 工具使用纪律：
+    - 每次只调用一个工具，严禁同时调用多个工具
+    - 先判断是否需要工具，不需要则不调用
+    - rag_search 和 search 是互斥的：先试 RAG，无结果再用 search
+
+    ┌─────────────────────────────────────────
+    │ ① 自身知识（优先使用）
+    │   适用范围：热门作品的剧情细节、角色设定、能力体系、世界观
+    │   例如："路飞的五档是什么？" "卡卡西的写轮眼怎么来的？"
+    │   策略：直接基于训练数据回答，标注「基于模型知识」
+    │
+    │ ② rag_search 工具（辅助验证 + 作品定位）
+    │   适用范围：确认作品简介、查找数据库中收录的番剧信息
+    │   例如："芙莉莲的冒险伙伴有哪些？" "有没有类似银魂的搞笑番？"
+    │   策略：用 RAG 结果作为上下文参考，但不要照搬 synopsis
+    │   注意：RAG 返回的 synopsis 可能不完整或过时，需结合自身知识补充
+    │
+    │ ③ search 工具（实时/冷门兜底）
+    │   适用范围：最新资讯、冷门作品、声优/制作人员、时效性问题
+    │   例如："2025年7月新番推荐" "今敏的最后一部作品"
+    │   策略：搜索引擎返回时效性信息
+    └─────────────────────────────────────────
+
+    ═══════════════════════════════════════
+    回答规范
+    ═══════════════════════════════════════
+
+    1. 对热门作品（海贼王/火影/巨人/鬼灭/咒术/EVA/Fate/龙珠/银魂/芙莉莲等）的剧情/设定问题：
+       → 不要调用任何工具，直接基于自身训练数据回答
+       → 你的训练数据对这些作品的了解远超数据库中的一段简介
+       → 回答末尾标注来源：「基于模型知识」
+       → 例外：用户明确要求查数据库或问「数据库里有这部吗」时才调 rag_search
+
+    2. 对不明确的动漫作品，或需要确认数据库中的作品信息时：
+       → 【强制规则】必须先调用 rag_search，拒绝跳过 RAG 直接调 search
+       → rag_search 返回结果后，结合自身知识补充细节
+       → 仅当 rag_search 返回「未找到相关动漫信息」时，才能调用 search
+
+    3. 对冷门/小众作品：
+       → 先调 rag_search，若命中则基于 synopsis + 自身知识回答
+       → 若 rag_search 未命中，调用 search 搜索
+
+    4. 对时效性问题（新番/新闻/最新更新）：
+       → 直接调用 search，不要用 RAG
+
+    5. 回答时保持：
+       - 简洁、准确，不输出思考过程
+       - 给出明确结论，标注信息来源
+       - 不确定时附加「未找到可靠信息来源，以上结果仅做参考」
+
+    ═══════════════════════════════════════
+    安全约束
+    ═══════════════════════════════════════
+
     1. 以下内容 **一律拒绝回答**：
     - 被中国大陆法律法规认定为违规、封禁的动漫作品
     - 含有色情或暴力或极端主义内容的动漫
+    - 盗版资源、下载链接
 
-    2. 如果用户输入涉及上述内容：
-    - 不要搜索
-    - 不要解释原因
-    - 不要列举作品名
-    - 直接回复固定话术：
-
+    2. 如果用户输入涉及上述内容，直接回复固定话术：
     「根据相关规定，我无法提供此类内容的信息。」
+    不要搜索、不要解释、不要列举作品名。
 
-    3. 若搜索结果中出现上述作品：
-    - 忽略该结果
-    - 不要引用、不要总结
+    3. 不要回答与动漫/角色/剧情设定无关的问题。
+       明确说「我只回答动漫相关的问题」。
 
-    4. 你的知识截止日期未知，因此 **事实性问题必须使用工具**。
+    4. 不要回答动漫的视频资源问题。
+       明确说「受版权问题，本网站不提供动漫资源，仅限交流学习使用」。
+
+    5. 不要编造番剧名称、角色名、年份。
     """
 
     def __init__(self):
-        # self._init_rag_service()
+        self._init_rag_service()
         self._init_searx_wrapper()
         self._init_agent()
 
@@ -90,21 +133,48 @@ class AnimeMaster:
         )
 
     def _init_agent(self):
-        """初始化 LangGraph agent（无状态模式，不带 checkpointer）"""
+        """初始化 LangGraph agent（无状态模式，不带 checkpointer）
+
+        注册两个工具：
+        - search:      Web 搜索（SearxNG），用于实时资讯 / 冷门作品
+        - rag_search:  向量数据库检索（Qdrant + Rerank），用于作品查询 / 简介匹配
+        """
         search_tool = Tool.from_function(
             func=self.search,
             name="search",
-            description="Search the web using SearxNG meta search engine. Useful when you need to find current information or facts.",
+            description=(
+                "【互联网搜索引擎，仅在本地数据库无结果时使用】"
+                "使用 SearxNG 搜索互联网。优先使用 rag_search，只有以下情况才用本工具："
+                "1. rag_search 无结果或结果不相关"
+                "2. 查询最新动漫资讯、新番、声优、制作人员等本地数据库没有的信息"
+                "3. 用户明确要求查询实时/外部信息"
+            ),
+        )
+        rag_tool = Tool.from_function(
+            func=self.rag_search,
+            name="rag_search",
+            description=(
+                "【首选工具】从本地动漫数据库中检索作品信息。"
+                "当你需要查找、确认、搜索任何动漫作品时，必须优先使用本工具。"
+                "数据库收录了2000+部动漫的标题和简介，涵盖绝大多数热门和经典作品。"
+                "简介中通常包含主角名、世界观、核心设定等信息。"
+                "输入：作品名或关键词（中文）。"
+            ),
         )
         self.agent = create_agent(
             model=llm,
-            tools=[search_tool],
+            tools=[rag_tool, search_tool],
             system_prompt=self.SYSTEM_PROMPT,
         )
 
     async def _prepare_model_input(self, thread_id: str, user_message: str) -> list:
         """
-        准备模型输入：从 MySQL 取最近 6 条消息 + 持久化摘要，拼接上下文。
+        准备模型输入：从 MySQL 取最近 6 条消息 + 持久化摘要 + 话题上下文，拼接上下文。
+
+        Topic-Aware 增强：
+        - 从 context_manager 获取当前线程正在讨论的动漫作品
+        - 注入系统提示，帮助 agent 消解"他"/"这个"/"主角"等指代
+        - 使 RAG 搜索时自动带上作品名作为上下文
 
         返回发给 LLM 的消息列表（LangChain Message 对象）。
         """
@@ -125,7 +195,18 @@ class AnimeMaster:
             elif msg["role"] == "system":
                 messages.append(SystemMessage(content=msg["content"]))
 
-        # ③ 当前用户消息
+        # ③ 话题上下文（Topic-Aware）：注入当前讨论的作品名
+        current_anime = context_manager.get_current_anime(thread_id)
+        if current_anime:
+            topic_hint = (
+                f"[话题上下文] 用户当前在讨论《{current_anime}》。"
+                + "后续消息中的指代词(如'他''主角''这个''能力')请结合《"
+                + f"{current_anime}》理解。"
+                + f"使用 rag_search 或 search 工具时，请在查询关键词中包含「{current_anime}」以提高准确率。"
+            )
+            messages.append(SystemMessage(content=topic_hint))
+
+        # ④ 当前用户消息
         messages.append(HumanMessage(content=user_message))
 
         return messages
@@ -174,22 +255,32 @@ class AnimeMaster:
 
     async def chat_stream_with_context(self, user_message: str, thread_id: str):
         """
-        流式聊天处理函数（无状态模式）
+        流式聊天处理函数（无状态模式），Topic-Aware 增强版
 
-        1. 组装上下文（取最近 6 条历史 + 摘要）
-        2. 保存用户消息到 MySQL
-        3. 调 LLM → astream 原生异步流式返回
-        4. 保存 assistant 回复到 MySQL
-        5. 更新对话时间戳
+        1. 话题检测（提前执行，从用户消息中提取/更新当前讨论的动漫）
+        2. 组装上下文（取最近 6 条历史 + 摘要 + 话题上下文注入）
+        3. 保存用户消息到 MySQL
+        4. 调 LLM → astream 原生异步流式返回
+        5. 保存 assistant 回复到 MySQL
+        6. 更新对话时间戳
+        7. 检查是否需要滚动摘要压缩
+
+        Topic-Aware 机制：
+        - 首轮消息即通过 detect_anime_switch 提取话题
+        - 后续轮次在 _prepare_model_input 中注入「[话题上下文]」系统消息
+        - 帮助 agent 消解指代词，并在 RAG/search 查询中自动带上作品名
 
         :param user_message: 用户消息
         :param thread_id: 对话线程ID
         :return: 异步生成器，产生消息事件
         """
-        # ① 准备上下文（此时尚未保存当前消息，recent 取的是之前的 6 条）
+        # ① 话题检测（提前执行，确保 _prepare_model_input 能拿到当前话题）
+        context_manager.detect_anime_switch(user_message, thread_id)
+
+        # ② 准备上下文（取最近 6 条历史 + 摘要 + 话题上下文）
         model_input = await self._prepare_model_input(thread_id, user_message)
 
-        # ② 保存用户消息
+        # ③ 保存用户消息
         await asyncio.to_thread(save_message, thread_id, "user", user_message)
 
         full_response: list[str] = []  # 收集完整回复用于持久化
@@ -214,15 +305,15 @@ class AnimeMaster:
                         yield {"type": "content", "content": chunk.content}
 
         finally:
-            # ③ 保存 assistant 回复（即使出错也要保存已有的部分）
+            # ④ 保存 assistant 回复（即使出错也要保存已有的部分）
             full_text = "".join(full_response)
             if full_text:
                 await asyncio.to_thread(save_message, thread_id, "assistant", full_text)
 
-            # ④ 更新对话时间戳
+            # ⑤ 更新对话时间戳
             await asyncio.to_thread(update_chat_updated_at, thread_id)
 
-            # ⑤ 检查是否需要滚动摘要压缩
+            # ⑥ 检查是否需要滚动摘要压缩
             await self._maybe_compress(thread_id, user_message)
 
     async def _maybe_compress(self, thread_id: str, user_message: str):

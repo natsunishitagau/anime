@@ -6,7 +6,7 @@ api_key=os.environ.get("DASHSCOPE_API_KEY")
 llm = init_chat_model(
     api_key=api_key,
     base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-    model="openai:qwen3.6-flash"
+    model="openai:qwen-max"
 )
 
 if __name__ == "__main__":

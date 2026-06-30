@@ -25,20 +25,37 @@ class ContextManager:
         patterns = [
             # 书名号：《进击的巨人》 → "进击的巨人"
             (r"《(.+?)》", 1),
-            # 说说/介绍/讲讲/聊聊 XXX（贪婪捕获完整名字，再清理尾部虚词）
-            (r"(?:说说|介绍|讲讲|聊聊)(.+)(?:的|有关|相关)?(?:剧情|角色|故事|内容)?", 1),
+            # 说说/介绍/讲讲/聊聊 XXX
+            (r"(?:说说|介绍|讲讲|聊聊)(.+?)(?:的|有关|相关)?(?:剧情|角色|故事|内容)?$", 1),
+            # "XXX的主角/角色/剧情/结局/世界观..." → "XXX"
+            (r"^(.+?)的(?:主角|角色|剧情|结局|世界观|设定|能力|故事|声优|导演|制作)", 1),
+            # "XXX好不好看/好看吗/怎么样/是什么/讲了什么" → "XXX"
+            (r"^(.+?)(?:好不好看|好看吗|怎么样|是什么|讲了什么|讲的是什么)", 1),
         ]
         for pattern, group_idx in patterns:
             match = re.search(pattern, user_message)
             if match:
                 name = match.group(group_idx).strip()
-                # 循环清理尾部常见后缀，处理"的结局"、"的人物"等复合结尾
+                # 循环清理尾部常见后缀
                 while True:
-                    new_name = re.sub(r"(?:的结局|的人物|的角色|的剧情|的|了|吗|呢|啊|吧|什么|怎么|结局|剧情|人物|角色)$", "", name).strip()
+                    new_name = re.sub(
+                        r"(?:的结局|的人物|的角色|的剧情|的五档|的能力|的形态|的招式"
+                        r"|的|了|吗|呢|啊|吧|什么|怎么"
+                        r"|结局|剧情|人物|角色|五档|能力|形态)$",
+                        "", name
+                    ).strip()
                     if new_name == name:
                         break
                     name = new_name
-                if name and len(name) >= 2:
+                # 代词检查：排除纯代词和代词前缀
+                PRONOUN_PREFIXES = {"他的", "她的", "它的", "他们的", "她们的", "它们的", "这个的", "那个的"}
+                PRONOUN_BARE = {"他", "她", "它", "他们", "她们", "它们",
+                                "这个", "那个", "这部", "那部", "这", "那",
+                                "我", "你", "你们", "我们", "大家",
+                                "什么", "怎么", "为什么", "哪个", "哪里"}
+                has_pronoun_prefix = any(name.startswith(p) for p in PRONOUN_PREFIXES)
+                is_bare_pronoun = name in PRONOUN_BARE
+                if name and len(name) >= 2 and not has_pronoun_prefix and not is_bare_pronoun:
                     return name
         return None
 
