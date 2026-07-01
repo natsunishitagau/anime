@@ -32,6 +32,17 @@ pip install uv && uv sync   # Install dependencies (uses Tsinghua PyPI mirror)
 python main.py              # Start on :8000
 ```
 
+### RAG Evaluation
+```bash
+cd anime-agent
+.venv/Scripts/python.exe eval/eval_rag.py                 # Full eval (retrieval + rerank)
+.venv/Scripts/python.exe eval/eval_rag.py --stage vector   # Vector-only eval
+.venv/Scripts/python.exe eval/eval_rag.py --category alias # Single-category eval
+.venv/Scripts/python.exe eval/eval_rag.py --output report.json  # Custom output
+.venv/Scripts/python.exe eval/test_e2e.py                  # End-to-end agent routing test
+```
+Reports saved to `anime-agent/eval/reports/eval_<timestamp>.json`.
+
 ## Architecture (3 Modules)
 
 ### 1. Backend — `backend/` (Java, Spring Boot 3.2)
@@ -56,11 +67,20 @@ SPA with Vue Router + Pinia stores + Element Plus UI.
 - **Key views**: Home (trending/top), AnimeDetail (info + reviews), VideoPlayer (HLS + danmaku), AgentChat (streaming AI chat)
 
 ### 3. AI Agent — `anime-agent/` (Python, FastAPI + LangChain)
-Anime Master Q&A agent. FastAPI on :8000, LangChain agent with tool-use (SearxNG search, optional Qdrant RAG).
+Anime Master Q&A agent. FastAPI on :8000, LangGraph agent with tool-use + RAG + topic-aware context.
 
 - **Entry**: `main.py` → uvicorn, `app/api/main.py` → FastAPI app with CORS
-- **Agent core**: `app/agent/anime_master.py` (LangGraph-based agent with system prompt), `context_manager.py` (conversation history management)
-- **RAG**: `app/db/qdrant_client.py` + `rag.py` (vector search), `build_qdrant_vector_db.py`
+- **Agent core**:
+  - `app/agent/anime_master.py` — LangGraph agent with **Agentic RAG** (3-tier routing: LLM knowledge → RAG → Web search), two registered tools: `rag_search` (Qdrant) + `search` (SearxNG)
+  - `app/agent/context_manager.py` — topic detection via regex (anime name extraction, pronoun blacklist), thread-isolated `_thread_anime` dict, rolling LLM summary compression every 10 messages
+- **RAG pipeline**:
+  - `app/db/rag.py` — **Hybrid Search**: vector (BGE-large-zh, 1024d) + keyword (client-side title index, 2021 anime) → RRF fusion → BGE-reranker-v2-m3 CrossEncoder rerank
+  - `app/db/qdrant_client.py` + `build_qdrant_vector_db.py` — Qdrant local mode
+- **Evaluation** (`eval/`):
+  - `eval/eval_dataset.json` — 60 QA pairs across 6 categories
+  - `eval/eval_rag.py` — Hit@k / MRR / NDCG metrics, stage-aware, per-category breakdown
+  - `eval/test_e2e.py` — end-to-end agent routing verification
+  - `eval/reports/` — timestamped JSON reports for regression tracking
 - **Storage**: PostgreSQL for conversation checkpoints (`app/db/user_chats.py`)
 - **Frontend integration**: `AgentChat.vue` calls `http://localhost:8000` directly, streaming response with typewriter effect
 
@@ -74,7 +94,11 @@ Anime Master Q&A agent. FastAPI on :8000, LangChain agent with tool-use (SearxNG
 - **Danmaku rate limiting**: Per-connection Redis-based rate limiting in DanmakuWebSocketHandler
 - **Sensitive word filter**: Custom DFA-based filter rejects danmaku containing banned words
 - **HLS video**: Backend serves HLS segments under `/hls/**`, frontend uses hls.js for playback
-- **No tests**: Both `backend/src/test/` and frontend test setup are empty
+- **RAG/Hybrid Search**: `app/db/rag.py` uses `BAAI/bge-large-zh` for embedding + `BAAI/bge-reranker-v2-m3` for reranking. Hybrid Search = vector (Qdrant COSINE) + keyword (client-side title index) → RRF fusion → rerank. Qdrant runs in local mode; payload indexes have no effect.
+- **Agentic RAG**: LangGraph agent registers two tools — `rag_search` (Qdrant, first priority) and `search` (SearxNG, fallback). SYSTEM_PROMPT routes queries: hot anime → LLM knowledge (no tools), match/lookup → RAG, real-time/cold → web search.
+- **Topic-Aware**: `context_manager.py` detects anime name from user message via regex, caches per thread_id, injects `[话题上下文]` SystemMessage in `_prepare_model_input()` for multi-turn pronoun resolution.
+- **Eval**: 60-QA benchmark in `eval/eval_dataset.json` (6 categories). `eval_rag.py` computes Hit@k, MRR, NDCG with per-category breakdown. Baseline: Hit@1=27% → after Hybrid Search: 51.3%.
+- **No unit tests**: `backend/src/test/` and frontend test setup are empty. All automated validation lives in `anime-agent/eval/`.
 - **PowerShell environment**: Project uses Git Bash (POSIX), but AGENTS.md notes PowerShell compat concerns. Use `;` for chaining if ever in PowerShell
 
 ## Other Notes

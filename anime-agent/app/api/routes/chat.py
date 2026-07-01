@@ -1,26 +1,67 @@
-from fastapi import APIRouter, HTTPException
+import time
+import json
+from collections import defaultdict
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional
 from langchain_core.messages import HumanMessage, AIMessage
 from app.agent.anime_master import chat_stream_with_context, get_conversation_history, delete_conversation_history
 from app.db.user_chats import get_user_chats, create_user_chat
 from app.utils.snowflake import generate_snowflake_id
 from app.models.chat import llm
-import json
 
 router = APIRouter()
 
+# ═══════════════════════════════════════════════
+# 速率限制（内存滑动窗口，20次/分钟/IP）
+# ═══════════════════════════════════════════════
+
+_RATE_LIMIT = 20          # 最多请求数
+_RATE_WINDOW = 60         # 窗口大小（秒）
+
+
+class RateLimiter:
+    """内存滑动窗口速率限制器"""
+
+    def __init__(self):
+        self._buckets: dict[str, list[float]] = defaultdict(list)
+
+    def check(self, key: str) -> tuple[bool, int]:
+        """检查是否限流。
+
+        Args:
+            key: 限流键（如 client IP）
+
+        Returns:
+            (是否允许, 当前窗口内已请求数)
+        """
+        now = time.time()
+        bucket = self._buckets[key]
+
+        # 清理过期记录
+        bucket[:] = [t for t in bucket if now - t < _RATE_WINDOW]
+        current = len(bucket)
+
+        if current >= _RATE_LIMIT:
+            return False, current
+
+        bucket.append(now)
+        return True, current + 1
+
+
+rate_limiter = RateLimiter()
+
 
 class ChatRequest(BaseModel):
-    message: str
-    thread_id: str
+    message: str = Field(..., min_length=1, max_length=2000, description="用户消息")
+    thread_id: str = Field(..., min_length=1, max_length=64, description="对话线程ID")
 
 
 class NewChatRequest(BaseModel):
-    user_id: int
-    message: str
-    thread_id: Optional[str] = None
+    user_id: int = Field(..., ge=0, description="用户ID")
+    message: str = Field(..., min_length=1, max_length=2000, description="首条消息")
+    thread_id: Optional[str] = Field(None, max_length=64, description="可选线程ID")
 
 
 class GenerateThreadIdResponse(BaseModel):
@@ -28,8 +69,8 @@ class GenerateThreadIdResponse(BaseModel):
 
 
 class ChatMessage(BaseModel):
-    role: str
-    content: str
+    role: str = Field(..., max_length=16)
+    content: str = Field(..., max_length=10000)
 
 
 class HistoryResponse(BaseModel):
@@ -55,9 +96,11 @@ def summarize_message(message: str) -> str:
     :return: 总结标题
     """
     try:
+        # 截断防止注入
+        safe_message = message[:100]
         prompt = f"""
         请将以下用户提问总结成一个简洁的中文标题，不超过20个字：
-        {message}
+        {safe_message}
         """
         response = llm.invoke(prompt)
         title = response.content.strip()
@@ -72,10 +115,19 @@ def summarize_message(message: str) -> str:
 
 
 @router.post("/chat/stream")
-async def chat_stream(request: ChatRequest):
+async def chat_stream(request: ChatRequest, fastapi_request: Request):
     """
     流式聊天接口（消息保存和时间戳更新由 agent 层统一处理）
     """
+    # 速率限制
+    client_ip = fastapi_request.client.host if fastapi_request.client else "unknown"
+    allowed, current_count = rate_limiter.check(client_ip)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"请求过于频繁（{_RATE_LIMIT}次/{_RATE_WINDOW}秒），请稍后再试"
+        )
+
     async def generate():
         try:
             async for event in chat_stream_with_context(request.message, request.thread_id):
@@ -118,12 +170,21 @@ async def generate_thread_id():
 
 
 @router.post("/chat/new", response_model=NewChatResponse)
-async def new_chat(request: NewChatRequest):
+async def new_chat(request: NewChatRequest, fastapi_request: Request):
     """
     新建用户对话接口
     支持接收前端传入的thread_id，或自动生成
     使用LLM总结第一次提问作为标题
     """
+    # 速率限制
+    client_ip = fastapi_request.client.host if fastapi_request.client else "unknown"
+    allowed, _ = rate_limiter.check(client_ip)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"请求过于频繁（{_RATE_LIMIT}次/{_RATE_WINDOW}秒），请稍后再试"
+        )
+
     try:
         # 使用传入的thread_id或自动生成
         thread_id = request.thread_id if request.thread_id else generate_snowflake_id()

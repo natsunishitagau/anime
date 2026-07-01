@@ -38,12 +38,15 @@
 
 ### AI Agent (anime-agent)
 - **Language**: Python 3.11+
-- **Framework**: LangChain
+- **Framework**: LangChain + LangGraph
 - **Web Framework**: FastAPI
-- **LLM Integration**: OpenAI API
-- **Vector Database**: Qdrant (optional, for RAG)
+- **LLM Integration**: Qwen (DashScope), LangChain agent
+- **Vector Database**: Qdrant (local mode, BGE-large-zh embedding)
+- **Reranker**: BGE-reranker-v2-m3 (CrossEncoder)
+- **Hybrid Search**: vector + keyword (client-side title index) → RRF fusion → rerank
 - **Checkpoint**: PostgreSQL (for conversation history)
-- **Search Engine**: SearxNG (meta search)
+- **Search Engine**: SearxNG (meta search, fallback for RAG misses)
+- **Eval**: Hit@k / MRR / NDCG benchmark suite, 60-QA test set, auto-generated reports
 
 ## Project Structure
 
@@ -116,23 +119,30 @@
 ├── anime-agent/                         # AI 智能助手服务 (Python)
 │   ├── app/
 │   │   ├── agent/                      # 智能代理核心
-│   │   │   ├── anime_master.py         # 动漫助手核心类
-│   │   │   └── context_manager.py      # 上下文管理
+│   │   │   ├── anime_master.py         # LangGraph agent + Agentic RAG (3-tier routing)
+│   │   │   └── context_manager.py      # 话题检测 + 多轮上下文管理
 │   │   ├── api/                        # FastAPI 接口
 │   │   │   ├── main.py                 # API 入口
 │   │   │   └── routes/
-│   │   │       └── chat.py             # 聊天接口路由
+│   │   │       └── chat.py             # 聊天接口 (流式 SSE)
 │   │   ├── db/                         # 数据库相关
-│   │   │   ├── qdrant_client.py        # Qdrant 客户端
-│   │   │   ├── rag.py                  # RAG 服务
-│   │   │   └── user_chats.py           # 用户对话管理
+│   │   │   ├── qdrant_client.py        # Qdrant 客户端 (local mode)
+│   │   │   ├── rag.py                  # Hybrid RAG: 向量+关键词→RRF→Rerank
+│   │   │   ├── build_qdrant_vector_db.py # 向量库构建脚本
+│   │   │   └── user_chats.py           # 用户对话管理 (PostgreSQL)
 │   │   ├── models/                     # 模型相关
-│   │   │   ├── chat.py                 # LLM 模型配置
+│   │   │   ├── chat.py                 # LLM 模型配置 (Qwen via DashScope)
 │   │   │   └── anime_processor.py      # 动漫数据处理
 │   │   └── utils/                      # 工具函数
 │   │       └── snowflake.py            # Snowflake ID 生成
 │   ├── prompts/                        # 提示词模板
 │   │   └── synopsis.md                 # 剧情简介提示词
+│   ├── eval/                           # RAG 评测套件
+│   │   ├── eval_dataset.json           # 60 条 QA 评测集 (6 类)
+│   │   ├── eval_rag.py                 # 评测引擎 (Hit@k/MRR/NDCG)
+│   │   ├── test_e2e.py                 # 端到端 Agent 路由测试
+│   │   └── reports/                    # 评测报告 (JSON)
+│   ├── scripts/                        # 工具脚本
 │   ├── main.py                         # 服务启动入口
 │   └── pyproject.toml                  # Python 项目配置
 └── README.md
@@ -269,67 +279,105 @@ SEARX_HOST=http://localhost:4000
 
 ### Overview
 
-Anime Master 是基于 LangChain 构建的动漫智能问答助手，为用户提供专业的动漫相关问答服务。
+Anime Master 是基于 LangGraph 构建的动漫智能问答助手。核心设计围绕 **Agentic RAG** 展开 — Agent 根据问题类型在「LLM 自身知识 → RAG 检索 → Web 搜索」三层之间智能路由，结合话题感知的上下文管理实现多轮对话消解指代。
 
 ### Core Features
 
-- **智能问答**: 回答用户关于动漫、角色、剧情设定的问题
-- **实时搜索**: 集成 SearxNG 元搜索引擎，获取最新动漫资讯
-- **RAG 支持**: 支持从向量数据库检索动漫知识库（可选）
-- **多轮对话**: 支持上下文保持的多轮对话
+- **Agentic RAG**: 三层自适应路由 — 热门作品剧情→LLM 自身知识（0次工具调用），作品匹配/简介核实→RAG 向量库，冷门/时效→Web 搜索
+- **Hybrid Search RAG**: 向量（BGE-large-zh, 1024d） + 关键词（客户侧 title 索引）→ RRF 融合 → CrossEncoder 重排，Hit@1 从 27% 提升至 51.3%
+- **Topic-Aware 多轮对话**: 正则提取番剧名，thread_id 隔离缓存，第二轮起注入 `[话题上下文]` SystemMessage，消解"他"/"这个"/"主角"等指代
+- **实时搜索**: 集成 SearxNG 元搜索引擎，兜底冷门/时效性查询
+- **对话压缩**: 每 10 条消息触发 LLM 滚动摘要，保持上下文窗口可控
 - **敏感内容过滤**: 自动过滤违规内容，拒绝回答敏感问题
+- **评测体系**: 60 条 QA 评测集（6 类），Hit@k / MRR / NDCG 指标追踪
 
 ### Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                     Anime Master Agent                         │
-├─────────────────────────────────────────────────────────────────┤
-│  ┌─────────────────┐    ┌─────────────────┐                   │
-│  │   User Input    │───▶│   Prompt Build  │                   │
-│  └─────────────────┘    └────────┬────────┘                   │
-│                                  ▼                             │
-│  ┌─────────────────────────────────────────────┐               │
-│  │              LangChain Agent                │               │
-│  │  ┌─────────────────────────────────────┐   │               │
-│  │  │  System Prompt + Tools + Checkpoint │   │               │
-│  │  └─────────────────────────────────────┘   │               │
-│  └─────────────────────────────────────────────┘               │
-│                          │                                     │
-│          ┌───────────────┼───────────────┐                     │
-│          ▼               ▼               ▼                     │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐            │
-│  │  SearxNG    │  │   Qdrant    │  │ PostgreSQL  │            │
-│  │   Search    │  │   RAG DB    │  │ Checkpoint  │            │
-│  └─────────────┘  └─────────────┘  └─────────────┘            │
-└─────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────┐
+│                         Anime Master Agent                        │
+├────────────────────────────────────────────────────────────────────┤
+│  User Input                                                        │
+│    │                                                                │
+│    ├─▶ [Layer1] 话题检测 extract_anime_name()                      │
+│    │     regex: 《书名》/ "XXX的主角" / "XXX好看吗" / 代词过滤      │
+│    │     → 按 thread_id 缓存到 _thread_anime dict                  │
+│    │                                                                │
+│    ├─▶ [Layer2] 上下文组装 _prepare_model_input()                  │
+│    │     ① 持久化摘要 (PostgreSQL, 跨重启)                         │
+│    │     ② 最近 6 条历史消息                                       │
+│    │     ③ [话题上下文] SystemMessage（当前在聊《XXX》）           │
+│    │     ④ 当前用户消息                                            │
+│    │                                                                │
+│    └─▶ [Layer3] LangGraph Agent (qwen3.6-flash)                    │
+│          │                                                          │
+│          ├─ 热门作品(海贼/火影/鬼灭/芙莉莲等)剧情/设定             │
+│          │  → LLM 自身知识，不调工具                                │
+│          │                                                          │
+│          ├─ 作品匹配/简介/相似作品                                 │
+│          │  → rag_search 工具 (Hybrid RAG)                          │
+│          │    ┌──────────────────────────────────┐                 │
+│          │    │  Qdrant (向量 COSINE 1024d)       │                 │
+│          │    │  + 客户侧 title 关键词检索        │                 │
+│          │    │  → RRF 融合 → CrossEncoder rerank │                 │
+│          │    └──────────────────────────────────┘                 │
+│          │                                                          │
+│          ├─ 冷门/时效 (新番/声优/2025年XXX)                        │
+│          │  → search 工具 (SearxNG)                                │
+│          │                                                          │
+│          └─ 违规/无关 → 直接拒绝，不调工具                         │
+│                                                                     │
+│  答覆 → 流式SSE → AgentChat.vue (打字机效果)                      │
+└────────────────────────────────────────────────────────────────────┘
 ```
 
-### Workflow
+### RAG Pipeline 细览
 
-1. **用户输入**: 用户在前端聊天界面输入问题
-2. **上下文准备**: 从 PostgreSQL Checkpoint 获取历史对话，进行上下文压缩
-3. **工具调用**: Agent 根据问题决定是否调用搜索工具或 RAG 工具
-4. **LLM 响应**: 结合工具返回结果，生成最终回答
-5. **流式输出**: 将响应流式返回前端
+```
+User Query "航海王"
+  │
+  ├─▶ Vector Search (Qdrant, COSINE)
+  │    "航海王" embedding → top-20 by COSINE score
+  │
+  ├─▶ Keyword Search (client-side title index)
+  │    "航海王" in title → title降序 (精确匹配+Jaccard token overlap)
+  │
+  ├─▶ RRF Fusion (k=60)
+  │    score(anime) = Σ 1/(k + rank_vector) + Σ 1/(k + rank_keyword)
+  │
+  └─▶ CrossEncoder Rerank (BGE-reranker-v2-m3)
+       pair = (query, f"{title} {synopsis}") → relevance score → top-5
+```
 
-### System Prompt
+### Evaluation Benchmark
 
-Anime Master 使用精心设计的系统提示词，确保回答：
-- 简洁准确，给出明确结论
-- 标注信息来源
-- 不编造番剧名称、角色、年份
-- 拒绝回答与动漫无关的问题
-- 拒绝回答违规内容
+| 类别 | 说明 | 数量 | Baseline Hit@1 | Hybrid Hit@1 |
+|------|------|------|:-:|:-:|
+| synopsis_match | 简介直接匹配 | 10 | 30.0% | **60.0%** |
+| alias_variant | 译名变体 | 10 | 30.0% | 40.0% |
+| detail_qa | 剧情细节 | 10 | 30.0% | **60.0%** |
+| multi_hop | 多跳推理 | 6 | 16.7% | 50.0% |
+| cold_start | 冷门知识 | 10 | — | — |
+| negative | 负面测试 | 10 | — | — |
+| **Overall** | | **37 有效** | **27.0%** | **51.3%** |
+
+运行评测：
+```bash
+cd anime-agent
+.venv/Scripts/python.exe eval/eval_rag.py                  # 全量评测
+.venv/Scripts/python.exe eval/eval_rag.py --stage vector    # 仅向量检索
+.venv/Scripts/python.exe eval/eval_rag.py --category alias  # 单类别
+.venv/Scripts/python.exe eval/test_e2e.py                   # Agent 端到端测试
+```
 
 ### Frontend Integration
 
 前端通过 `AgentChat.vue` 组件实现与 AI Agent 的交互：
 
 **主要功能**:
-- 对话列表管理
-- 流式消息显示（打字机效果）
-- 思考状态展示（工具调用时显示"思考中"）
+- 对话列表管理（thread_id 隔离）
+- 流式 SSE 消息显示（打字机效果）
+- 工具调用状态展示（"思考中"/"调用搜索工具"）
 
 **连接配置**:
 ```javascript
@@ -380,6 +428,10 @@ const AGENT_API_BASE = 'http://localhost:8000'
 |---------|-------------|
 | `uv sync` | 安装依赖 |
 | `python main.py` | 启动 AI Agent 服务 |
+| `.venv/Scripts/python.exe eval/eval_rag.py` | 运行 RAG 检索评测（Hit@k/MRR/NDCG） |
+| `.venv/Scripts/python.exe eval/eval_rag.py --stage vector` | 仅向量检索阶段评测 |
+| `.venv/Scripts/python.exe eval/eval_rag.py --category alias_variant` | 指定类别评测 |
+| `.venv/Scripts/python.exe eval/test_e2e.py` | 运行 Agent 端到端测试 |
 
 ## Others
 

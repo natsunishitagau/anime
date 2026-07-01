@@ -3,9 +3,18 @@ AnimeMaster — 动漫助手核心类
 
 管理 LLM agent 的搜索工具、对话上下文组装、消息持久化。
 对话消息全量存 MySQL conversation_messages 表，每次请求取最近 6 条 + 持久化摘要作为上下文。
+
+安全特性（v2）:
+- Prompt Injection 检测与清洗（两级策略：静默替换 → 日志告警 → 升级拒绝）
+- RAG / Search 结果消毒（防间接注入）
+- 无限循环防护（recursion_limit + asyncio.timeout）
+- 输入输出长度限制
 """
 
 import asyncio
+import re
+import time
+from collections import defaultdict
 from langchain_community.utilities import SearxSearchWrapper
 from langchain_core.tools.simple import Tool
 from langchain.agents import create_agent
@@ -25,6 +34,102 @@ from app.db.user_chats import (
 )
 
 RECENT_MESSAGE_LIMIT = 6  # 每次请求取最近 N 条消息作为上下文
+
+# ═══════════════════════════════════════════════
+# Prompt Injection 检测 & 防御
+# ═══════════════════════════════════════════════
+
+# 注入模式表：(编译后的正则, 替换文本)
+# 注意：用于工具人清洗，不是安全围栏的替代品
+_INJECTION_PATTERNS: list[tuple[re.Pattern, str]] = [
+    # 1) 指令覆盖类 — "忽略以上所有指令" 等
+    (re.compile(r"(?i)忽略\s*(?:掉|以下|上面|以上|掉所有|掉全部)?\s*(?:所有|全部)?\s*(?:的)?\s*(?:指令|提示|规则|设定|指示|要求|system\s*prompt)"), "【内容已过滤】"),
+    # 2) 角色扮演类 — "从现在开始你扮演xxx"
+    (re.compile(r"(?i)(?:从现在开始|接下来|之后)\s*(?:你|请|给我).*?(?:扮演|作为|当|成为)"), "【内容已过滤】"),
+    # 3) 规则跳过类
+    (re.compile(r"(?i)(?:不要|不用)\s*(?:遵守|执行|遵循|管)\s*(?:所有|全部)?\s*(?:限制|规则|指令|设定|filter)"), "【内容已过滤】"),
+    (re.compile(r"(?i)跳过\s*(?:所有|全部)?\s*(?:限制|规则|指令|设定|filter)"), "【内容已过滤】"),
+    # 4) 身份套取类
+    (re.compile(r"(?i)你(?:是|叫)\s*(?:什么|OpenAI|ChatGPT|Claude|大模型|AI助手|语言模型)"), "【内容已过滤】"),
+    # 5) 长分隔符（干扰提示边界）
+    (re.compile(r"[-═=]{30,}"), ""),
+    # 6) 代码块尝试（可能含注入指令）
+    (re.compile(r"```[\s\S]*?```"), "【代码块已过滤】"),
+]
+
+# 每个 thread_id 在窗口内触发 N 次后升级为拒绝
+_INJECTION_MAX_HITS = 3
+_INJECTION_WINDOW = 300  # 5 秒
+
+_MAX_MESSAGE_LENGTH = 2000
+_MAX_RAG_SNIPPET = 500
+
+
+class InjectionDetector:
+    """Prompt Injection 检测器（两级策略）
+
+    第一级 — 疑似注入：静默替换关键词 + 日志告警，正常继续处理
+    第二级 — 明显恶意：同一 thread_id 在窗口期内多次触发 → 直接拒绝
+    """
+
+    def __init__(self):
+        self._history: dict[str, list[tuple[float, str]]] = defaultdict(list)
+
+    def sanitize(self, text: str, thread_id: str = "") -> tuple[str, bool]:
+        """检测并清洗输入。
+
+        Args:
+            text: 用户原始输入
+            thread_id: 线程 ID（用于升级判断）
+
+        Returns:
+            (清洗后文本, is_blocked)
+            is_blocked=True 表示已升级为拒绝模式
+        """
+        now = time.time()
+        sanitized = text
+        triggered: list[str] = []
+
+        for pattern, replacement in _INJECTION_PATTERNS:
+            if pattern.search(sanitized):
+                sanitized = pattern.sub(replacement, sanitized)
+                triggered.append(pattern.pattern)
+
+        # 截断超长输入
+        if len(sanitized) > _MAX_MESSAGE_LENGTH:
+            sanitized = sanitized[:_MAX_MESSAGE_LENGTH]
+
+        if triggered and thread_id:
+            # 记录触发历史
+            self._history[thread_id].append((now, triggered[0]))
+            # 清理过期记录
+            self._history[thread_id] = [
+                (t, p) for t, p in self._history[thread_id] if now - t < _INJECTION_WINDOW
+            ]
+
+            print(
+                f"[InjectionDetector] thread={thread_id}, "
+                f"patterns={triggered}, "
+                f"hit_count={len(self._history[thread_id])}"
+            )
+
+            # 第二级：窗口内多次触发 → 拒绝
+            if len(self._history[thread_id]) >= _INJECTION_MAX_HITS:
+                return sanitized, True
+
+        return sanitized, False
+
+    def sanitize_rag_text(self, text: str) -> str:
+        """清洗 RAG 检索结果 / 搜索结果的文本片段，防止间接 prompt injection。"""
+        text = re.sub(r"```[\s\S]*?```", "", text)
+        text = re.sub(r"`[^`]+`", "", text)
+        text = re.sub(r"[-═=]{20,}", "", text)
+        if len(text) > _MAX_RAG_SNIPPET:
+            text = text[:_MAX_RAG_SNIPPET]
+        return text
+
+
+injection_detector = InjectionDetector()
 
 
 class AnimeMaster:
@@ -70,7 +175,7 @@ class AnimeMaster:
     回答规范
     ═══════════════════════════════════════
 
-    1. 对热门作品（海贼王/火影/巨人/鬼灭/咒术/EVA/Fate/龙珠/银魂/芙莉莲等）的剧情/设定问题：
+    1. 对热门作品（海贼王/火影/巨人/鬼灭/咒术/EVA/Fate/龙珠/银魂等）的剧情/设定问题：
        → 不要调用任何工具，直接基于自身训练数据回答
        → 你的训练数据对这些作品的了解远超数据库中的一段简介
        → 回答末尾标注来源：「基于模型知识」
@@ -215,11 +320,15 @@ class AnimeMaster:
         """
         Search the web using SearxNG meta search engine.
 
+        （结果经过间接 injection 消毒处理）
+
         Args:
             query: The search query to look up on the web
         """
         try:
             result = self.searx_wrapper.run(query, language="zh", format="json")
+            # 消毒搜索结果，防止间接 prompt injection
+            result = injection_detector.sanitize_rag_text(str(result))
             return result
         except Exception as e:
             error_msg = f"搜索服务暂时不可用，请稍后重试。错误信息: {type(e).__name__}"
@@ -231,6 +340,8 @@ class AnimeMaster:
         Search anime information from vector database using RAG.
         Useful for answering questions about anime synopsis, characters, and plot.
 
+        （检索结果经过间接 injection 消毒处理）
+
         Args:
             query: The search query about anime
         """
@@ -241,10 +352,13 @@ class AnimeMaster:
 
             formatted_results = []
             for i, r in enumerate(results):
+                # 消毒每个字段，防止数据库中的投毒注入
+                safe_title = injection_detector.sanitize_rag_text(r["title"])
+                safe_synopsis = injection_detector.sanitize_rag_text(r["synopsis"])
                 formatted_results.append(f"""
-                    {i+1}. 《{r['title']}》
+                    {i+1}. 《{safe_title}》
                     评分: 向量相似度 {r['vector_score']:.4f}, 重排分数 {r['rerank_score']:.4f}
-                    简介: {r['synopsis']}
+                    简介: {safe_synopsis}
                     """)
 
             return "\n".join(formatted_results)
@@ -255,66 +369,94 @@ class AnimeMaster:
 
     async def chat_stream_with_context(self, user_message: str, thread_id: str):
         """
-        流式聊天处理函数（无状态模式），Topic-Aware 增强版
+        流式聊天处理函数（无状态模式），Topic-Aware 增强版 + 安全防护
 
         1. 话题检测（提前执行，从用户消息中提取/更新当前讨论的动漫）
-        2. 组装上下文（取最近 6 条历史 + 摘要 + 话题上下文注入）
-        3. 保存用户消息到 MySQL
-        4. 调 LLM → astream 原生异步流式返回
-        5. 保存 assistant 回复到 MySQL
-        6. 更新对话时间戳
-        7. 检查是否需要滚动摘要压缩
+        2. **Prompt Injection 检测**：检测到注入模式时静默替换，多次触发则拒绝
+        3. 组装上下文（取最近 6 条历史 + 摘要 + 话题上下文注入）
+        4. 保存用户消息到 MySQL
+        5. 调 LLM → astream 原生异步流式返回 **（带 30s 超时 + recursion_limit=10）**
+        6. 保存 assistant 回复到 MySQL
+        7. 更新对话时间戳
+        8. 检查是否需要滚动摘要压缩
 
         Topic-Aware 机制：
         - 首轮消息即通过 detect_anime_switch 提取话题
         - 后续轮次在 _prepare_model_input 中注入「[话题上下文]」系统消息
         - 帮助 agent 消解指代词，并在 RAG/search 查询中自动带上作品名
 
+        安全防护：
+        - Prompt Injection 两级策略：替换 → 拒绝
+        - RAG / Search 结果消毒，防止间接注入
+        - recursion_limit=10 防止工具调用死循环
+        - asyncio.timeout(30) 防止长时间无响应
+        - 输入/输出长度限制
+
         :param user_message: 用户消息
         :param thread_id: 对话线程ID
         :return: 异步生成器，产生消息事件
         """
-        # ① 话题检测（提前执行，确保 _prepare_model_input 能拿到当前话题）
-        context_manager.detect_anime_switch(user_message, thread_id)
+        # ① Prompt Injection 检测与清洗
+        safe_message, is_blocked = injection_detector.sanitize(user_message, thread_id)
+        if is_blocked:
+            print(f"[AnimeMaster] 拒绝注入请求 thread={thread_id}")
+            yield {
+                "type": "error",
+                "content": "检测到多次异常输入，请重新开始对话。"
+            }
+            return
 
-        # ② 准备上下文（取最近 6 条历史 + 摘要 + 话题上下文）
-        model_input = await self._prepare_model_input(thread_id, user_message)
+        # ② 话题检测（提前执行，确保 _prepare_model_input 能拿到当前话题）
+        context_manager.detect_anime_switch(safe_message, thread_id)
 
-        # ③ 保存用户消息
-        await asyncio.to_thread(save_message, thread_id, "user", user_message)
+        # ③ 准备上下文（取最近 6 条历史 + 摘要 + 话题上下文）
+        model_input = await self._prepare_model_input(thread_id, safe_message)
+
+        # ④ 保存用户消息
+        await asyncio.to_thread(save_message, thread_id, "user", safe_message)
 
         full_response: list[str] = []  # 收集完整回复用于持久化
 
         try:
-            # 原生 astream，不再需要 run_in_executor + Queue 的 workaround
-            async for chunk, _data in self.agent.astream(
-                {"messages": model_input},
-                stream_mode="messages",
-            ):
-                if chunk.content == "":
-                    try:
-                        if chunk.tool_calls:
-                            yield {"type": "tool_call", "content": "调用搜索工具"}
-                        else:
+            # ⑤ 调 LLM → 带超时 + 递归深度保护
+            async with asyncio.timeout(30):
+                async for chunk, _data in self.agent.astream(
+                    {"messages": model_input},
+                    stream_mode="messages",
+                    config={"recursion_limit": 10},
+                ):
+                    if chunk.content == "":
+                        try:
+                            if chunk.tool_calls:
+                                yield {"type": "tool_call", "content": "调用搜索工具"}
+                            else:
+                                yield {"type": "consider", "content": "思考中"}
+                        except Exception:
                             yield {"type": "consider", "content": "思考中"}
-                    except Exception:
-                        yield {"type": "consider", "content": "思考中"}
-                else:
-                    if isinstance(chunk, AIMessage):
-                        full_response.append(chunk.content)
-                        yield {"type": "content", "content": chunk.content}
+                    else:
+                        if isinstance(chunk, AIMessage):
+                            full_response.append(chunk.content)
+                            yield {"type": "content", "content": chunk.content}
+
+        except asyncio.TimeoutError:
+            print(f"[AnimeMaster] 超时 thread={thread_id}")
+            yield {"type": "error", "content": "响应超时（30秒），请简化你的问题或重新提问。"}
+
+        except Exception as e:
+            print(f"[AnimeMaster] agent 流式异常: {type(e).__name__}: {e}")
+            yield {"type": "error", "content": f"处理请求时出现异常，请重试。"}
 
         finally:
-            # ④ 保存 assistant 回复（即使出错也要保存已有的部分）
+            # ⑥ 保存 assistant 回复（即使出错也要保存已有的部分）
             full_text = "".join(full_response)
             if full_text:
                 await asyncio.to_thread(save_message, thread_id, "assistant", full_text)
 
-            # ⑤ 更新对话时间戳
+            # ⑦ 更新对话时间戳
             await asyncio.to_thread(update_chat_updated_at, thread_id)
 
-            # ⑥ 检查是否需要滚动摘要压缩
-            await self._maybe_compress(thread_id, user_message)
+            # ⑧ 检查是否需要滚动摘要压缩
+            await self._maybe_compress(thread_id, safe_message)
 
     async def _maybe_compress(self, thread_id: str, user_message: str):
         """
